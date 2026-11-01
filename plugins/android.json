@@ -1,0 +1,47 @@
+{
+  "prepare_queue": {
+    "installed": [],
+    "uninstalled": []
+  },
+  "config_munge": {
+    "files": {}
+  },
+  "installed_plugins": {
+    "cordova-plugin-firebasex-messaging": {
+      "FIREBASE_FCM_AUTOINIT_ENABLED": "true",
+      "FIREBASE_MESSAGING_IMMEDIATE_PAYLOAD_DELIVERY": "false",
+      "IOS_FCM_ENABLED": "true",
+      "IOS_ENABLE_CRITICAL_ALERTS_ENABLED": "false",
+      "ANDROID_ICON_ACCENT": "#12805C",
+      "ANDROID_FIREBASE_MESSAGING_VERSION": "25.0.2",
+      "ANDROID_FIREBASE_CORE_VERSION": "21.1.1",
+      "ANDROID_FIREBASE_INSTALLATIONS_VERSION": "19.1.0",
+      "ANDROID_GSON_VERSION": "2.14.0",
+      "PACKAGE_NAME": "com.liad.agala"
+    }
+  },
+  "dependent_plugins": {
+    "cordova-plugin-agala-native": {
+      "PACKAGE_NAME": "com.liad.agala"
+    },
+    "cordova-plugin-firebasex-analytics": {
+      "FIREBASE_ANALYTICS_COLLECTION_ENABLED": "false",
+      "FIREBASE_ANALYTICS_WITHOUT_ADS": "false",
+      "GOOGLE_ANALYTICS_ADID_COLLECTION_ENABLED": "true",
+      "GOOGLE_ANALYTICS_DEFAULT_ALLOW_ANALYTICS_STORAGE": "true",
+      "GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_STORAGE": "true",
+      "GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_USER_DATA": "true",
+      "GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS": "true",
+      "IOS_ON_DEVICE_CONVERSION_ANALYTICS": "false",
+      "ANDROID_FIREBASE_ANALYTICS_VERSION": "23.0.0",
+      "ANDROID_PLAY_SERVICES_TAGMANAGER_VERSION": "18.3.0",
+      "PACKAGE_NAME": "com.liad.agala"
+    },
+    "cordova-plugin-firebasex-core": {
+      "ANDROID_FIREBASE_CORE_VERSION": "21.1.1",
+      "ANDROID_FIREBASE_INSTALLATIONS_VERSION": "19.1.0",
+      "ANDROID_GSON_VERSION": "2.14.0",
+      "PACKAGE_NAME": "com.liad.agala"
+    }
+  }
+}

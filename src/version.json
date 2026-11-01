@@ -1,1 +1,4 @@
-{ "version": 1, "minApi": 1 }
+{
+  "version": 2,
+  "minApi": 1
+}

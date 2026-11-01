@@ -54,6 +54,8 @@
     return String(10000000 + (a[0] % 90000000));
   }
   function fmtCode(c) { return c ? c.slice(0, 4) + '-' + c.slice(4) : ''; }
+  function normQ(v) { var q = +v; if (!(q >= 0.5)) return 1; q = Math.round(q * 2) / 2; return Math.min(99, q); }
+  function fmtQ(q) { return Number.isInteger(q) ? String(q) : q.toFixed(1); }
   function tsMs(x) {
     if (!x) return 0;
     if (typeof x === 'number') return x;
@@ -214,7 +216,7 @@
     var m = d.items || {}, items = [];
     Object.keys(m).forEach(function (id) {
       var v = m[id];
-      if (v && typeof v.t === 'string' && v.t) items.push({ id: id, t: v.t, q: Math.max(1, +v.q || 1), d: !!v.d, c: +v.c || 0, by: v.by || '' });
+      if (v && typeof v.t === 'string' && v.t) items.push({ id: id, t: v.t, q: normQ(v.q), d: !!v.d, c: +v.c || 0, by: v.by || '' });
     });
     items.sort(function (a, b) { return a.c - b.c || (a.id < b.id ? -1 : 1); });
     return {
@@ -324,7 +326,7 @@
   function listText(key) {
     var items = listOf(key).items.filter(function (i) { return !i.d; });
     return (key === 'mom' ? 'רשימת קניות – אמא' : 'רשימת קניות') + ':\n' +
-      items.map(function (i) { return '• ' + i.t + (i.q > 1 ? ' ×' + i.q : ''); }).join('\n');
+      items.map(function (i) { return '• ' + i.t + (i.q !== 1 ? ' ×' + fmtQ(i.q) : ''); }).join('\n');
   }
   function saveQuick(arr) {
     FBM.setDoc(famRef(), { quick: arr }, { merge: true }).catch(function () { toast('לא הצלחתי לשמור.'); });
@@ -409,7 +411,7 @@
       var out = {}, n = 0;
       Object.keys(o || {}).forEach(function (id) {
         var v = o[id]; if (n >= MAX_ITEMS || !/^[a-z0-9]{3,20}$/i.test(id) || !v || typeof v.t !== 'string') return;
-        out[id] = { t: cleanText(v.t), q: Math.min(99, Math.max(1, +v.q || 1)), d: !!v.d, c: +v.c || Date.now(), by: v.by === 'liad' ? 'liad' : 'mom' }; n++;
+        out[id] = { t: cleanText(v.t), q: normQ(v.q), d: !!v.d, c: +v.c || Date.now(), by: v.by === 'liad' ? 'liad' : 'mom' }; n++;
       });
       return out;
     }
@@ -553,7 +555,7 @@
     var chk = C.role === 'liad';
     return '<li class="item' + (it.d ? ' done' : '') + '" data-id="' + it.id + '" data-key="' + key + '">' +
       (chk ? '<button class="chk' + (it.d ? ' on' : '') + '" data-act="tick" aria-label="סימון ' + esc(it.t) + '" aria-pressed="' + (it.d ? 'true' : 'false') + '">' + ico('check') + '</button>' : '') +
-      '<button class="name" data-act="edit" aria-label="עריכת ' + esc(it.t) + '"><span class="t">' + esc(it.t) + '</span>' + (it.q > 1 ? '<span class="qty">×' + it.q + '</span>' : '') + '</button>' +
+      '<button class="name" data-act="edit" aria-label="עריכת ' + esc(it.t) + '"><span class="t">' + esc(it.t) + '</span>' + (it.q !== 1 ? '<span class="qty">×' + fmtQ(it.q) + '</span>' : '') + '</button>' +
       '<button class="icon-btn danger" data-act="del" aria-label="מחיקת ' + esc(it.t) + '">' + ico('trash') + '</button></li>';
   }
   function renderItems(key, sel) {
@@ -597,12 +599,12 @@
     var it = findItem(key, id); if (!it) return;
     var q = it.q;
     openSheet('<h3>עריכת מוצר</h3><input class="field" id="eName" maxlength="60" value="' + esc(it.t) + '" aria-label="שם המוצר">' +
-      '<div class="stepper"><button class="btn" id="qMinus" aria-label="פחות">' + ico('minus', 'lg') + '</button><b id="qVal" aria-live="polite">' + q + '</b><button class="btn" id="qPlus" aria-label="יותר">' + ico('plus', 'lg') + '</button></div>' +
+      '<div class="stepper"><button class="btn" id="qMinus" aria-label="פחות">' + ico('minus', 'lg') + '</button><b id="qVal" aria-live="polite">' + fmtQ(q) + '</b><button class="btn" id="qPlus" aria-label="יותר">' + ico('plus', 'lg') + '</button></div>' +
       '<div class="two"><button class="btn primary" id="eSave">שמירה</button><button class="btn" id="eCancel">ביטול</button></div><div class="spacer"></div>' +
       '<button class="btn danger block" id="eDel">' + ico('trash') + ' מחיקת המוצר</button>', function (sh) {
-      function upd() { $('#qVal', sh).textContent = q; }
-      $('#qMinus', sh).onclick = function () { q = Math.max(1, q - 1); upd(); };
-      $('#qPlus', sh).onclick = function () { q = Math.min(99, q + 1); upd(); };
+      function upd() { $('#qVal', sh).textContent = fmtQ(q); }
+      $('#qMinus', sh).onclick = function () { q = Math.max(0.5, q - 0.5); upd(); };
+      $('#qPlus', sh).onclick = function () { q = Math.min(99, q + 0.5); upd(); };
       $('#eCancel', sh).onclick = closeSheet;
       $('#eDel', sh).onclick = function () { closeSheet(); removeWithUndo(key, id); };
       $('#eSave', sh).onclick = function () {

@@ -14,7 +14,19 @@
     "bundle": "node tools/bundle.js"
   },
   "devDependencies": {
+    "cordova-android": "^15.1.0",
+    "cordova-plugin-firebasex-messaging": "^2.0.3",
     "esbuild": "0.21.5",
     "firebase": "10.14.1"
+  },
+  "cordova": {
+    "platforms": [
+      "android"
+    ],
+    "plugins": {
+      "cordova-plugin-firebasex-messaging": {
+        "ANDROID_ICON_ACCENT": "#12805C"
+      }
+    }
   }
 }
