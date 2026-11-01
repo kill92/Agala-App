@@ -1,0 +1,12 @@
+node_modules/
+platforms/
+plugins/cordova-plugin-*/
+!plugins/agala-native/
+keys/
+google-services.json
+firebase-web-config.txt
+agala.config.json
+build.json
+*.apk
+.firebaserc
+functions/node_modules/

@@ -1,0 +1,46 @@
+<?xml version='1.0' encoding='utf-8'?>
+<widget id="com.liad.agala" version="1.0.0" android-versionCode="1"
+        xmlns="http://www.w3.org/ns/widgets"
+        xmlns:cdv="http://cordova.apache.org/ns/1.0"
+        xmlns:android="http://schemas.android.com/apk/res/android">
+  <name>עגלה</name>
+  <description>רשימת קניות משפחתית פשוטה ונגישה</description>
+  <author email="liad2009@gmail.com" href="https://github.com">ליעד</author>
+  <content src="index.html" />
+
+  <!-- ניווט חיצוני מותר רק לוואטסאפ (שיתוף קוד חיבור) -->
+  <allow-intent href="https://wa.me/*" />
+  <allow-intent href="whatsapp:*" />
+
+  <preference name="Scheme" value="https" />
+  <preference name="Hostname" value="localhost" />
+  <preference name="Orientation" value="portrait" />
+  <preference name="DisallowOverscroll" value="true" />
+  <preference name="AndroidWindowSplashScreenBackground" value="#12805C" />
+  <preference name="AndroidWindowSplashScreenAnimatedIcon" value="res/splash.png" />
+
+  <platform name="android">
+    <!-- בלי גיבוי אוטומטי לענן של גוגל – הגיבוי הוא מקומי בלבד -->
+    <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest/application">
+      <application android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true" />
+    </edit-config>
+
+    <icon src="res/icon/android/icon-mdpi.png" density="mdpi" />
+    <icon src="res/icon/android/icon-hdpi.png" density="hdpi" />
+    <icon src="res/icon/android/icon-xhdpi.png" density="xhdpi" />
+    <icon src="res/icon/android/icon-xxhdpi.png" density="xxhdpi" />
+    <icon src="res/icon/android/icon-xxxhdpi.png" density="xxxhdpi" />
+    <icon background="res/icon/android/adaptive-bg-mdpi.png" foreground="res/icon/android/adaptive-fg-mdpi.png" density="mdpi" />
+    <icon background="res/icon/android/adaptive-bg-hdpi.png" foreground="res/icon/android/adaptive-fg-hdpi.png" density="hdpi" />
+    <icon background="res/icon/android/adaptive-bg-xhdpi.png" foreground="res/icon/android/adaptive-fg-xhdpi.png" density="xhdpi" />
+    <icon background="res/icon/android/adaptive-bg-xxhdpi.png" foreground="res/icon/android/adaptive-fg-xxhdpi.png" density="xxhdpi" />
+    <icon background="res/icon/android/adaptive-bg-xxxhdpi.png" foreground="res/icon/android/adaptive-fg-xxxhdpi.png" density="xxxhdpi" />
+
+    <!-- אייקון קטן (לבן) להתראות -->
+    <resource-file src="res/notif/drawable-mdpi/notification_icon.png" target="app/src/main/res/drawable-mdpi/notification_icon.png" />
+    <resource-file src="res/notif/drawable-hdpi/notification_icon.png" target="app/src/main/res/drawable-hdpi/notification_icon.png" />
+    <resource-file src="res/notif/drawable-xhdpi/notification_icon.png" target="app/src/main/res/drawable-xhdpi/notification_icon.png" />
+    <resource-file src="res/notif/drawable-xxhdpi/notification_icon.png" target="app/src/main/res/drawable-xxhdpi/notification_icon.png" />
+    <resource-file src="res/notif/drawable-xxxhdpi/notification_icon.png" target="app/src/main/res/drawable-xxxhdpi/notification_icon.png" />
+  </platform>
+</widget>

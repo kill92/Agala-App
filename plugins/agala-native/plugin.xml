@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        id="cordova-plugin-agala-native" version="1.0.0">
+  <name>AgalaNative</name>
+  <description>גיבוי יומי מקומי, הכתבה בקול והרשאות לאפליקציית עגלה</description>
+
+  <js-module src="www/agala.js" name="AgalaNative">
+    <clobbers target="AgalaNative"/>
+  </js-module>
+
+  <platform name="android">
+    <config-file target="res/xml/config.xml" parent="/*">
+      <feature name="AgalaNative">
+        <param name="android-package" value="com.liad.agala.AgalaNative"/>
+      </feature>
+    </config-file>
+
+    <config-file target="AndroidManifest.xml" parent="/manifest">
+      <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+      <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+      <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
+      <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+      <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+      <queries>
+        <intent>
+          <action android:name="android.speech.action.RECOGNIZE_SPEECH"/>
+        </intent>
+      </queries>
+    </config-file>
+
+    <config-file target="AndroidManifest.xml" parent="/manifest/application">
+      <receiver android:name="com.liad.agala.BackupAlarmReceiver" android:exported="false"/>
+      <receiver android:name="com.liad.agala.BootReceiver" android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.BOOT_COMPLETED"/>
+          <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+          <action android:name="android.intent.action.TIME_SET"/>
+          <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+        </intent-filter>
+      </receiver>
+    </config-file>
+
+    <source-file src="src/android/BackupCore.java" target-dir="src/com/liad/agala"/>
+    <source-file src="src/android/BackupAlarmReceiver.java" target-dir="src/com/liad/agala"/>
+    <source-file src="src/android/BootReceiver.java" target-dir="src/com/liad/agala"/>
+    <source-file src="src/android/AgalaNative.java" target-dir="src/com/liad/agala"/>
+  </platform>
+</plugin>

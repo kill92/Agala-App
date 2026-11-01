@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://raw.githubusercontent.com; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="format-detection" content="telephone=no">
+<title>עגלה</title>
+<style>
+html,body{margin:0;height:100%}
+body{background:#f4f7f5;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Hebrew",Arial,sans-serif}
+@media (prefers-color-scheme:dark){body{background:#0e1512;color:#eaf2ee}}
+#boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:inherit;z-index:99;transition:opacity .25s}
+#boot img{width:112px;height:112px;border-radius:28px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+#boot p{margin:0;font-size:20px;opacity:.7}
+#boot.gone{opacity:0;pointer-events:none}
+#boot button{font:inherit;font-size:18px;padding:12px 22px;border-radius:14px;border:0;background:#12805c;color:#fff}
+</style>
+<style id="app-css"></style>
+</head>
+<body>
+<div id="boot"><img src="img/icon.png" alt=""><p id="bootMsg">טוען…</p></div>
+<div id="app"></div>
+<script src="cordova.js"></script>
+<script src="js/config.js"></script>
+<script src="js/firebase.js"></script>
+<script src="js/shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "agala",
+  "version": "1.0.0",
+  "private": true,
+  "description": "עגלה – רשימת קניות משפחתית",
+  "scripts": {
+    "doctor": "node tools/doctor.js",
+    "setup": "node tools/setup.js",
+    "native": "node tools/native.js",
+    "apk": "node tools/build-apk.js",
+    "apk:release": "node tools/build-apk.js --release",
+    "deploy:firebase": "node tools/deploy-firebase.js",
+    "publish-update": "node tools/publish.js",
+    "bundle": "node tools/bundle.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.21.5",
+    "firebase": "10.14.1"
+  }
+}

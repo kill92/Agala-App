@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function memberPath(fid) { return /databases/$(database)/documents/families/$(fid)/members/$(request.auth.uid); }
+    function isMember(fid) { return signedIn() && exists(memberPath(fid)); }
+    function isLiad(fid) { return isMember(fid) && get(memberPath(fid)).data.role == 'liad'; }
+
+    match /families/{fid} {
+      // רק חברים בקבוצה (מי שהקליד את הקוד) יכולים לקרוא
+      allow get: if isMember(fid);
+
+      // יצירת קבוצה חדשה: קוד בן 8 ספרות, ורק אם המסמך עדיין לא קיים
+      allow create: if signedIn()
+        && fid.matches('^[0-9]{8}$')
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'quick', 'reminder'])
+        && request.resource.data.get('quick', []).size() <= 40;
+
+      // ליעד – הכול (פרט לבעלות); אמא – רק "מוצרים קבועים"
+      allow update: if (isLiad(fid)
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'quick', 'reminder', 'lastReminderDate'])
+          && request.resource.data.get('quick', []).size() <= 40)
+        || (isMember(fid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quick'])
+          && request.resource.data.get('quick', []).size() <= 40);
+
+      allow delete: if false;
+
+      match /members/{uid} {
+        // כל מכשיר רושם רק את עצמו; הצטרפות דורשת שהקבוצה קיימת (כלומר שהקוד נכון)
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && exists(/databases/$(database)/documents/families/$(fid))
+          && request.resource.data.role in ['mom', 'liad']
+          && request.resource.data.keys().hasOnly(['role', 'platform', 'token', 'updatedAt']);
+        allow read, delete: if false;
+      }
+
+      match /lists/{lid} {
+        allow read: if isMember(fid);
+        allow create, update: if isMember(fid)
+          && lid == 'mom'
+          && request.resource.data.keys().hasOnly(['items', 'mAt', 'sendSeq', 'sentAt', 'sentCount', 'orderedSeq', 'orderedAt'])
+          && request.resource.data.get('items', {}).size() <= 200;
+        allow delete: if false;
+      }
+
+      // הרשימה האישית של ליעד – נגישה רק למכשירי "ליעד"
+      match /private/{doc} {
+        allow read: if isLiad(fid) && doc == 'liad';
+        allow create, update: if isLiad(fid)
+          && doc == 'liad'
+          && request.resource.data.keys().hasOnly(['items'])
+          && request.resource.data.get('items', {}).size() <= 200;
+        allow delete: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
