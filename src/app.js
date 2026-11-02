@@ -34,6 +34,8 @@
     clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
     alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    play: '<polygon points="5 3 19 12 5 21 5 3"/>',
     wa: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>'
   };
 
@@ -107,7 +109,7 @@
     liad: { items: [], meta: {}, pending: false, fromCache: true },
     unsubs: [], perm: null, online: navigator.onLine !== false, speech: false,
     backup: null, serverSeen: false, retriedJoin: false, pendingRestore: null,
-    updateMsg: '', sheet: false, onboarding: null
+    updateMsg: '', updPending: 0, sheet: false, onboarding: null, tour: null, tourBar: null, tourSheet: false
   };
 
   /* ---------- מראה ---------- */
@@ -355,6 +357,13 @@
     var text = (m.title ? m.title + ' – ' : '') + (m.body || '');
     if (text) toast(text, { ms: 6000 });
   }
+  function askPermSheet() {
+    if (S.perm !== false || lsGet('permAsked') || S.phase !== 'main' || S.sheet || S.tour) return;
+    openSheet('<h3>' + ico('bell') + ' התראות</h3><p>' + (C.role === 'mom' ? 'כדי שאוכל להזכיר לך לרשום קניות, צריך לאשר התראות. בחלון שיקפוץ לחצי "אפשר".' : 'כדי לקבל התראה כשאמא שולחת רשימה, צריך לאשר התראות.') + '</p><button class="btn primary block" id="permGo">אישור התראות</button><div class="spacer"></div><button class="btn ghost block" id="permNo">אחר כך</button>', function (sh) {
+      $('#permGo', sh).onclick = function () { closeSheet(); askPerm(); };
+      $('#permNo', sh).onclick = function () { closeSheet(); lsSet('permAsked', '1'); };
+    });
+  }
   function setupNative() {
     var FP = window.FirebasePlugin;
     if (FP) {
@@ -364,14 +373,7 @@
         FP.onTokenRefresh(function (t) { S.token = t; if (S.uid && S.db) registerMember().catch(noop); }, noop);
       } catch (e) {}
       refreshPerm();
-      setTimeout(function () {
-        if (S.perm === false && !lsGet('permAsked') && S.phase === 'main') {
-          openSheet('<h3>' + ico('bell') + ' התראות</h3><p>' + (C.role === 'mom' ? 'כדי שאוכל להזכיר לך לרשום קניות, צריך לאשר התראות. בחלון שיקפוץ לחצי "אפשר".' : 'כדי לקבל התראה כשאמא שולחת רשימה, צריך לאשר התראות.') + '</p><button class="btn primary block" id="permGo">אישור התראות</button><div class="spacer"></div><button class="btn ghost block" id="permNo">אחר כך</button>', function (sh) {
-            $('#permGo', sh).onclick = function () { closeSheet(); askPerm(); };
-            $('#permNo', sh).onclick = function () { closeSheet(); lsSet('permAsked', '1'); };
-          });
-        }
-      }, 1800);
+      setTimeout(function () { if (!S.tour) askPermSheet(); }, 1800);
     }
     if (NA) {
       NA.isSpeechAvailable().then(function (v) {
@@ -571,6 +573,7 @@
   }
   function renderSendBar() {
     var el = $('#sendbar'); if (!el) return;
+    if (S.tourBar !== null) { el.innerHTML = S.tourBar; return; }
     var h = '', m = S.mom.meta, n = S.mom.items.length;
     if (S.phase !== 'main' || S.tab === 'settings') { el.innerHTML = ''; return; }
     if (S.tab === 'list' && C.role === 'mom') {
@@ -637,7 +640,7 @@
   }
 
   /* ----- הגדרות ----- */
-  function card(title, icon, body) { return '<section class="card"><h2>' + ico(icon) + esc(title) + '</h2>' + body + '</section>'; }
+  function card(title, icon, body, id) { return '<section class="card"' + (id ? ' id="' + id + '"' : '') + '><h2>' + ico(icon) + esc(title) + '</h2>' + body + '</section>'; }
   function seg(act, cur, opts) {
     return '<div class="seg" role="group">' + opts.map(function (o) { return '<button data-act="' + act + '" data-v="' + o[0] + '" aria-pressed="' + (cur === o[0] ? 'true' : 'false') + '">' + o[1] + '</button>'; }).join('') + '</div>';
   }
@@ -655,6 +658,9 @@
         '<div class="spacer"></div><div class="muted small" style="margin-bottom:6px">נוסח ההתראה</div><textarea class="field" id="remMsg" maxlength="120">' + esc(r.msg) + '</textarea>' +
         '<div class="muted small" style="margin-top:8px">אם אמא כבר שלחה רשימה ב-20 השעות האחרונות, לא תישלח תזכורת.</div></section>';
     }
+
+    h += card('מדריך שימוש', 'help',
+      '<div class="muted small" style="margin-bottom:10px">סיור קצר בכל הכפתורים, שלב אחר שלב</div><button class="btn primary block" data-act="tour">' + ico('play') + ' הפעלת המדריך</button>', 'tourCard');
 
     h += card('מראה', 'sun',
       '<div class="muted small" style="margin-bottom:6px">ערכת נושא</div>' + seg('theme', P.theme, [['auto', 'אוטומטי'], ['light', 'בהיר'], ['dark', 'כהה']]) +
@@ -689,7 +695,7 @@
     if (!mom) {
       h += card('חיבור לאמא', 'link',
         '<div class="muted small">קוד החיבור (להקלדה בטלפון של אמא):</div><div class="code" id="codeShow">' + esc(fmtCode(C.code)) + '</div>' +
-        '<div class="two"><button class="btn" data-act="copycode">' + ico('copy') + ' העתקה</button><a class="btn" style="text-decoration:none;color:inherit" href="' + waLink() + '">' + ico('wa') + ' וואטסאפ</a></div>');
+        '<div class="two"><button class="btn" data-act="copycode">' + ico('copy') + ' העתקה</button><a class="btn" style="text-decoration:none;color:inherit" href="' + waLink() + '">' + ico('wa') + ' וואטסאפ</a></div>', 'codeCard');
     }
     h += card('אפליקציה', 'info',
       '<div class="kv"><span>גרסה</span><span>' + SH.bundleVersion + '.' + SH.apkVersion + (SH.source === 'ota' ? ' (עדכון)' : '') + '</span></div>' +
@@ -817,6 +823,132 @@
       });
   }
 
+  /* ---------- מדריך מודרך ---------- */
+  function tourSteps() {
+    var item = function () { return $('li.item') || $('#listWrap'); };
+    var bar = function () { return $('#sendbar button') || $('#sendbar'); };
+    if (C.role === 'mom') return [
+      { title: 'ברוכה הבאה 👋', text: 'בדקה נלמד איך רושמים קניות.' },
+      { tab: 'list', sel: '#addInput', title: 'כתיבה', text: 'כותבים כאן מה חסר בבית.' },
+      { tab: 'list', sel: '#addForm button[type=submit]', title: 'הוספה', text: 'לוחצים "הוספה" והמוצר עולה לרשימה.' },
+      { tab: 'list', sel: 'button[data-act=mic]', optional: true, title: 'דיבור', text: 'או לוחצים "דיבור" ואומרים. אפשר כמה מוצרים, עם פסיק ביניהם.' },
+      { tab: 'list', sel: '#quick', optional: true, title: 'מוצרים קבועים', text: 'לחיצה אחת על מוצר קבוע מוסיפה אותו.' },
+      { tab: 'list', sel: item, title: 'הרשימה', text: 'נגיעה במוצר פותחת עריכה. הפח האדום מוחק, ואפשר לבטל.' },
+      { tab: 'list', demo: 'edit', sel: '.sheet .stepper', title: 'כמות', text: 'בעריכה בוחרים כמות, בקפיצות של חצי: 0.5, 1, 1.5…' },
+      { tab: 'list', demo: 'send', sel: bar, title: 'שליחה', text: 'בסיום לוחצים "סיימתי – שליחה ליעד". הוא מקבל התראה.' },
+      { sel: '.tab[data-v=settings]', title: 'הגדרות', text: 'גודל כתב, צבעים, התראות וגיבוי. גם המדריך הזה נמצא שם.' },
+      { title: 'זהו! 🛒', text: 'בהצלחה. אפשר להתחיל לרשום.' }
+    ];
+    return [
+      { title: 'ברוך הבא 👋', text: 'סיור קצר של חצי דקה.' },
+      { tab: 'list', sel: '#nav', title: 'שלוש לשוניות', text: 'רשימת אמא, הרשימה האישית שלך והגדרות.' },
+      { tab: 'list', sel: '.top', title: 'סטטוס', text: 'כאן רואים אם אמא שלחה, ומתי. תקבל גם התראה.' },
+      { tab: 'list', sel: '#addForm', title: 'הוספה', text: 'אפשר להוסיף מוצרים גם אתה.' },
+      { tab: 'list', sel: function () { return $('li.item .chk') || $('#listWrap'); }, title: 'סימון וכמות', text: 'מסמנים ✓ תוך כדי הזמנה. נגיעה בשם: עריכה וכמות, בקפיצות של חצי.' },
+      { tab: 'list', demo: 'liadbar', sel: '#sendbar', title: 'העתקה והזמנה', text: '"העתקה" להדבקה באתר הסופר. "הוזמן" מנקה את הרשימה ושולח לאמא הודעה.' },
+      { tab: 'mine', sel: '#addForm', title: 'רשימה ליעד', text: 'הרשימה האישית שלך. אמא לא רואה אותה.' },
+      { tab: 'settings', sel: '#remCard', title: 'תזכורת לאמא', text: 'בוחרים ימים ושעה, ואמא מקבלת תזכורת.' },
+      { tab: 'settings', sel: '#codeCard', title: 'קוד חיבור', text: 'הקוד של אמא. אפשר לשלוח בוואטסאפ.' },
+      { tab: 'settings', sel: '#tourCard', title: 'המדריך', text: 'המדריך תמיד זמין כאן.' },
+      { title: 'זהו! 🛒', text: 'בהצלחה בהזמנות.' }
+    ];
+  }
+  function tourFlag() { return 'tour.v1.' + C.role; }
+  function maybeAutoTour() {
+    if (S.phase !== 'main' || S.tour || S.sheet || lsGet(tourFlag())) return;
+    startTour();
+  }
+  function tourCleanup() {
+    if (S.tourSheet) { S.tourSheet = false; closeSheet(); }
+    if (S.tourBar !== null) { S.tourBar = null; renderSendBar(); }
+  }
+  function startTour() {
+    if (S.tour || S.phase !== 'main') return;
+    closeSheet();
+    var steps = tourSteps();
+    S.tour = { steps: steps, i: 0, token: 0 };
+    if (S.tab !== 'list') { S.tab = 'list'; renderMain(); }
+    var root = document.createElement('div');
+    root.id = 'tour'; root.className = 'on';
+    root.innerHTML = '<div class="t-dim"></div><div class="t-spot" hidden></div><div class="t-card" role="dialog" aria-live="polite"></div>';
+    document.body.appendChild(root);
+    root.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tour]'); if (!b) return;
+      var a = b.getAttribute('data-tour');
+      if (a === 'next') { if (S.tour.i >= S.tour.steps.length - 1) endTour(false); else { S.tour.i++; showStep(1); } }
+      else if (a === 'back') { if (S.tour.i > 0) { S.tour.i--; showStep(-1); } }
+      else if (a === 'skip') endTour(true);
+    });
+    window.addEventListener('resize', onTourResize);
+    showStep(1);
+  }
+  function onTourResize() { if (S.tour) placeSpot(S.tour.curEl); }
+  function showStep(dir) {
+    var T = S.tour; if (!T) return;
+    var st = T.steps[T.i], my = ++T.token;
+    tourCleanup();
+    if (st.tab && S.tab !== st.tab) { S.tab = st.tab; renderMain(); }
+    if (st.demo === 'edit') {
+      S.tourSheet = true;
+      openSheet('<h3>עריכת מוצר</h3><input class="field" value="חלב" disabled aria-label="שם המוצר"><div class="stepper"><button class="btn" tabindex="-1">' + ico('minus', 'lg') + '</button><b>1.5</b><button class="btn" tabindex="-1">' + ico('plus', 'lg') + '</button></div><div class="two"><button class="btn primary" tabindex="-1">שמירה</button><button class="btn" tabindex="-1">ביטול</button></div>');
+    }
+    if (st.demo === 'send' && !$('#sendbar button')) S.tourBar = '<button class="btn primary block sendbtn" tabindex="-1">' + ico('send') + ' סיימתי – שליחה ליעד</button>';
+    if (st.demo === 'liadbar' && !$('#sendbar button')) S.tourBar = '<div class="two"><button class="btn block" tabindex="-1">' + ico('copy') + ' העתקה</button><button class="btn primary block" tabindex="-1">' + ico('check') + ' הוזמן</button></div>';
+    if (S.tourBar !== null) renderSendBar();
+    setTimeout(function () {
+      if (!S.tour || S.tour.token !== my) return;
+      var el = st.sel ? (typeof st.sel === 'function' ? st.sel() : $(st.sel)) : null;
+      if (st.sel && !el && st.optional) {
+        var n = T.i + dir;
+        if (n < 0 || n >= T.steps.length) n = T.i + 1;
+        T.i = n; showStep(dir); return;
+      }
+      T.curEl = el;
+      renderCard(st);
+      if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }
+      setTimeout(function () { if (S.tour && S.tour.token === my) placeSpot(el); }, 70);
+    }, 90);
+  }
+  function renderCard(st) {
+    var T = S.tour, last = T.i === T.steps.length - 1, card = $('#tour .t-card');
+    card.innerHTML = '<div class="t-step">שלב ' + (T.i + 1) + ' מתוך ' + T.steps.length + '</div><h3>' + esc(st.title) + '</h3><p>' + esc(st.text) + '</p><div class="t-btns">' +
+      '<button class="btn primary" data-tour="next">' + (last ? 'סיום' : 'הבא') + '</button>' +
+      (T.i > 0 ? '<button class="btn ghost" data-tour="back">חזרה</button>' : '') +
+      (last ? '' : '<button class="btn ghost" data-tour="skip">דלג</button>') + '</div>';
+    var nb = $('[data-tour=next]', card); if (nb) { try { nb.focus(); } catch (e) {} }
+  }
+  function placeSpot(el) {
+    var root = $('#tour'); if (!root) return;
+    var spot = $('.t-spot', root), dim = $('.t-dim', root), card = $('.t-card', root), H = window.innerHeight, W = window.innerWidth, top;
+    var ch = card.offsetHeight;
+    if (el) {
+      var r = el.getBoundingClientRect(), pad = 8;
+      var t = Math.max(r.top - pad, 4), b = Math.min(r.bottom + pad, H - 4), l = Math.max(r.left - pad, 4), rr = Math.min(r.right + pad, W - 4);
+      spot.hidden = false; dim.classList.add('hole');
+      spot.style.top = t + 'px'; spot.style.left = l + 'px'; spot.style.width = Math.max(rr - l, 20) + 'px'; spot.style.height = Math.max(b - t, 20) + 'px';
+      if (H - b - 14 >= ch) top = b + 14;
+      else if (t - 14 >= ch) top = t - 14 - ch;
+      else top = (t + b) / 2 < H / 2 ? H - ch - 12 : 12;
+    } else {
+      spot.hidden = true; dim.classList.remove('hole'); top = (H - ch) / 2;
+    }
+    card.style.top = Math.max(10, Math.min(top, H - ch - 10)) + 'px';
+  }
+  function endTour(skipped) {
+    var T = S.tour; if (!T) return;
+    S.tour = null;
+    window.removeEventListener('resize', onTourResize);
+    var root = $('#tour'); if (root) root.parentNode.removeChild(root);
+    tourCleanup();
+    lsSet(tourFlag(), '1');
+    if (S.phase === 'main') { renderMain(); }
+    if (skipped) {
+      openSheet('<h3>בסדר 👍</h3><p>אפשר לחזור למדריך בכל רגע: <b>הגדרות ← מדריך שימוש</b>.</p><button class="btn primary block" id="skOk">הבנתי</button>', function (sh) {
+        $('#skOk', sh).onclick = function () { closeSheet(); setTimeout(askPermSheet, 400); };
+      });
+    } else setTimeout(askPermSheet, 400);
+  }
+
   /* ---------- הפעלה ---------- */
   function boot() {
     drawBusy('טוען…');
@@ -832,22 +964,35 @@
         applyRestore(d).then(function () { toast('הנתונים שוחזרו מהגיבוי ✓'); }, function () { toast('השחזור נכשל.'); });
       }
       startupUpdateCheck();
+      setTimeout(maybeAutoTour, 900);
     }).catch(function (e) { drawBootError(e && e.code === 'config' ? 'config' : 'net'); });
   }
-  function startupUpdateCheck() {
-    if (!SH.hasUpdates) return;
-    setTimeout(function () {
-      SH.checkUpdate().then(function (r) {
-        if (r.status === 'installed') toast('התקבל עדכון חדש לאפליקציה', { label: 'הפעלה מחדש', fn: SH.reload, ms: 9000 });
-      }, noop);
-    }, 5000);
+  /* בדיקת עדכון אוטומטית: בהפעלה, כל 3 דקות, ובחזרה מהרקע. עדכון שהותקן מוצג בסרגל קבוע ומופעל בחזרה הבאה לאפליקציה */
+  var lastUpdCheck = 0;
+  function startupUpdateCheck() { if (SH.hasUpdates) setTimeout(function () { autoUpdateCheck(0); }, 4000); }
+  function autoUpdateCheck(minGap) {
+    if (!SH.hasUpdates || S.updPending || document.hidden || S.phase === 'init') return;
+    var now = Date.now();
+    if (now - lastUpdCheck < minGap) return;
+    lastUpdCheck = now;
+    SH.checkUpdate().then(function (r) {
+      if (r.status === 'installed') { S.updPending = r.version; showUpdBar(); }
+    }, noop);
   }
+  function showUpdBar() {
+    var el = $('#updbar'); if (!el) return;
+    el.innerHTML = '<div class="updbar" role="status">' + ico('alert') + '<span class="grow">יש עדכון חדש לאפליקציה</span><button type="button" id="updGo">הפעלה מחדש</button></div>';
+    document.body.classList.add('hasupd');
+    $('#updGo').onclick = SH.reload;
+  }
+  function safeToReload() { return S.phase === 'main' && !S.sheet && !S.tour && !focusInScreen(); }
 
   /* ---------- אירועים ---------- */
   function doUpdateCheck() {
+    if (S.updPending) { SH.reload(); return; }
     S.updateMsg = 'בודק…'; var m = $('#updMsg'); if (m) m.textContent = S.updateMsg;
     SH.checkUpdate().then(function (r) {
-      if (r.status === 'installed') { S.updateMsg = ''; openSheet('<h3>הגיע עדכון</h3><p>העדכון הותקן. צריך להפעיל מחדש כדי להשתמש בו.</p><button class="btn primary block" id="upGo">הפעלה מחדש</button>', function (sh) { $('#upGo', sh).onclick = SH.reload; }); return; }
+      if (r.status === 'installed') { S.updateMsg = ''; S.updPending = r.version; showUpdBar(); openSheet('<h3>הגיע עדכון</h3><p>העדכון הותקן. צריך להפעיל מחדש כדי להשתמש בו.</p><button class="btn primary block" id="upGo">הפעלה מחדש</button>', function (sh) { $('#upGo', sh).onclick = SH.reload; }); return; }
       S.updateMsg = r.status === 'uptodate' ? 'האפליקציה מעודכנת ✓' : r.status === 'needs-apk' ? 'יש גרסה חדשה שדורשת התקנת APK חדש.' : r.status === 'bad-signature' ? 'העדכון נדחה (חתימה לא תקינה).' : 'עדכונים כבויים.';
       var mm = $('#updMsg'); if (mm) mm.textContent = S.updateMsg;
     }, function () { S.updateMsg = 'לא הצלחתי לבדוק (אין אינטרנט?).'; var mm = $('#updMsg'); if (mm) mm.textContent = S.updateMsg; });
@@ -899,6 +1044,7 @@
       case 'battery': if (NA) NA.requestIgnoreBattery().then(function () { setTimeout(loadBackupInfo, 1500); }, noop); break;
       case 'exact': if (NA) NA.openExactAlarmSettings().catch(noop); break;
       case 'update': doUpdateCheck(); break;
+      case 'tour': startTour(); break;
       case 'disconnect':
         confirmSheet({ title: 'לנתק ולהתחיל מחדש?', body: 'האפליקציה תתנתק מהחיבור הנוכחי ותחזור למסך הפתיחה. הרשימות עצמן נשמרות בענן.', ok: 'ניתוק', cancel: 'ביטול', danger: true }).then(function (ok) { if (ok) hardReset(); });
         break;
@@ -940,8 +1086,15 @@
     });
     window.addEventListener('online', function () { S.online = true; refresh(); });
     window.addEventListener('offline', function () { S.online = false; refresh(); });
-    document.addEventListener('visibilitychange', function () { if (!document.hidden && S.phase === 'main') { refreshPerm(); loadBackupInfo(); renderChip(); } });
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      if (S.updPending && safeToReload()) { SH.reload(); return; }   // חזרה לאפליקציה אחרי שהותקן עדכון: מפעילים אותו
+      autoUpdateCheck(45000);
+      if (S.phase === 'main') { refreshPerm(); loadBackupInfo(); renderChip(); }
+    });
+    setInterval(function () { autoUpdateCheck(170000); }, 180000);
     document.addEventListener('backbutton', function () {
+      if (S.tour) { endTour(true); return; }
       if (S.sheet) { closeSheet(); return; }
       if (S.phase === 'main' && S.tab !== 'list') { S.tab = 'list'; renderMain(); return; }
       if (S.phase === 'onboarding' && S.onboarding && S.onboarding !== 'welcome' && !C.role) { drawWelcome(); S.onboarding = 'welcome'; return; }
