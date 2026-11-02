@@ -155,14 +155,14 @@ textarea.field{min-height:84px;resize:vertical}
 .stepper{display:flex;align-items:center;justify-content:center;gap:18px;margin:14px 0}
 .stepper b{font-size:1.8rem;min-width:56px;text-align:center}
 .stepper .btn{min-width:64px}
-#toast{position:fixed;inset-inline:0;bottom:calc(158px + env(safe-area-inset-bottom));z-index:80;display:flex;justify-content:center;pointer-events:none;padding:0 16px}
+#toast{position:fixed;inset-inline:0;top:calc(max(env(safe-area-inset-top),8px) + 8px);z-index:80;display:flex;justify-content:center;pointer-events:none;padding:0 16px}
 .toast{pointer-events:auto;background:#1b2823;color:#fff;border-radius:18px;padding:14px 18px;display:flex;align-items:center;gap:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);font-weight:700;font-size:.95rem;animation:up .2s;max-width:560px}
 .toast button{color:#7ff0bf;font-weight:900;padding:6px 4px;min-height:40px}
 .spin{width:1.1em;height:1.1em;border-radius:50%;border:3px solid currentColor;border-top-color:transparent;animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
 
 body.kbd #bars{display:none}
-body.kbd #toast{bottom:20px}
+body.hasupd #toast{top:calc(max(env(safe-area-inset-top),8px) + 74px)}
 
 /* ===== בדיקת עדכון: סרגל קבוע ===== */
 #updbar{position:fixed;top:0;inset-inline:0;z-index:70;pointer-events:none}
@@ -183,3 +183,17 @@ body.hasupd #screen{padding-top:calc(max(env(safe-area-inset-top),8px) + 64px)}
 .t-btns{display:flex;gap:8px;align-items:center}
 .t-btns .btn.primary{flex:1.4}
 .t-btns .btn.ghost{flex:1;min-width:0;padding-inline:8px}
+
+/* ===== הערות, צ'ק ליסט, נעילת מדריך ===== */
+.tx{display:flex;flex-direction:column;min-width:0;flex:1;text-align:start}
+.nt{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin-top:1px;overflow-wrap:anywhere}
+.item.ck{padding:2px}
+.ckrow{display:flex;align-items:center;gap:14px;width:100%;text-align:start;padding:12px 12px;min-height:68px;border-radius:18px}
+.ckrow .t{font-size:1.15rem;font-weight:700;overflow-wrap:anywhere}
+.box{width:38px;height:38px;border-radius:12px;border:3px solid var(--line);display:inline-flex;align-items:center;justify-content:center;color:transparent;flex:none;background:var(--bg)}
+.item.ck.done .box{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.item.ck.done .ckrow .t{text-decoration:line-through;opacity:.55}
+.item.ck.done .nt{opacity:.55}
+select.field{appearance:auto;padding-inline:12px}
+body.touring{overflow:hidden}
+#tour,#tour *{touch-action:none}

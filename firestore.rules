@@ -15,13 +15,13 @@ service cloud.firestore {
       allow create: if signedIn()
         && fid.matches('^[0-9]{8}$')
         && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'quick', 'reminder'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'quick', 'reminder', 'reset'])
         && request.resource.data.get('quick', []).size() <= 40;
 
       // ליעד – הכול (פרט לבעלות); אמא – רק "מוצרים קבועים"
       allow update: if (isLiad(fid)
           && request.resource.data.ownerUid == resource.data.ownerUid
-          && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'quick', 'reminder', 'lastReminderDate'])
+          && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'quick', 'reminder', 'reset', 'lastReminderDate', 'lastResetDate'])
           && request.resource.data.get('quick', []).size() <= 40)
         || (isMember(fid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quick'])
@@ -43,8 +43,9 @@ service cloud.firestore {
         allow read: if isMember(fid);
         allow create, update: if isMember(fid)
           && lid == 'mom'
-          && request.resource.data.keys().hasOnly(['items', 'mAt', 'sendSeq', 'sentAt', 'sentCount', 'orderedSeq', 'orderedAt'])
-          && request.resource.data.get('items', {}).size() <= 200;
+          && request.resource.data.keys().hasOnly(['items', 'sent', 'mAt', 'sendSeq', 'sentAt', 'sentCount', 'orderedSeq', 'orderedAt'])
+          && request.resource.data.get('items', {}).size() <= 200
+          && request.resource.data.get('sent', {}).size() <= 200;
         allow delete: if false;
       }
 

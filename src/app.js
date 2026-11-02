@@ -34,6 +34,7 @@
     clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
     alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    checksq: '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
     help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
     play: '<polygon points="5 3 19 12 5 21 5 3"/>',
     wa: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>'
@@ -105,8 +106,8 @@
   var S = {
     phase: 'init', tab: 'list', uid: null, db: null, auth: null, token: null,
     family: null, famMissing: false,
-    mom: { items: [], meta: {}, pending: false, fromCache: true },
-    liad: { items: [], meta: {}, pending: false, fromCache: true },
+    mom: { items: [], sent: [], meta: {}, pending: false, fromCache: true },
+    liad: { items: [], sent: [], meta: {}, pending: false, fromCache: true },
     unsubs: [], perm: null, online: navigator.onLine !== false, speech: false,
     backup: null, serverSeen: false, retriedJoin: false, pendingRestore: null,
     updateMsg: '', updPending: 0, sheet: false, onboarding: null, tour: null, tourBar: null, tourSheet: false
@@ -195,7 +196,7 @@
   function liadRef() { return FBM.doc(S.db, 'families', C.code, 'private', 'liad'); }
   function memberRef() { return FBM.doc(S.db, 'families', C.code, 'members', S.uid); }
   function listRef(key) { return key === 'mom' ? momRef() : liadRef(); }
-  function listOf(key) { return key === 'mom' ? S.mom : S.liad; }
+  function listOf(key) { return key === 'mom' ? S.mom : key === 'sent' ? { items: S.mom.sent || [] } : S.liad; }
 
   function getToken(ms) {
     if (S.token) return Promise.resolve(S.token);
@@ -213,16 +214,20 @@
     });
   }
 
-  function parseList(snap) {
-    var d = snap.exists() ? snap.data({ serverTimestamps: 'estimate' }) : {};
-    var m = d.items || {}, items = [];
-    Object.keys(m).forEach(function (id) {
+  function parseMap(m) {
+    var items = [];
+    Object.keys(m || {}).forEach(function (id) {
       var v = m[id];
-      if (v && typeof v.t === 'string' && v.t) items.push({ id: id, t: v.t, q: normQ(v.q), d: !!v.d, c: +v.c || 0, by: v.by || '' });
+      if (v && typeof v.t === 'string' && v.t) items.push({ id: id, t: v.t, q: normQ(v.q), d: !!v.d, c: +v.c || 0, by: v.by || '', n: typeof v.n === 'string' ? v.n : '' });
     });
     items.sort(function (a, b) { return a.c - b.c || (a.id < b.id ? -1 : 1); });
+    return items;
+  }
+  function parseList(snap) {
+    var d = snap.exists() ? snap.data({ serverTimestamps: 'estimate' }) : {};
     return {
-      items: items,
+      items: parseMap(d.items),
+      sent: parseMap(d.sent),
       meta: { sentAt: tsMs(d.sentAt), mAt: tsMs(d.mAt), sendSeq: d.sendSeq || 0, orderedAt: tsMs(d.orderedAt) },
       pending: !!snap.metadata.hasPendingWrites,
       fromCache: !!snap.metadata.fromCache
@@ -306,14 +311,20 @@
   }
   function removeWithUndo(key, id) {
     var it = findItem(key, id); if (!it) return;
-    var copy = { t: it.t, q: it.q, d: it.d, c: it.c, by: it.by };
+    var copy = { t: it.t, q: it.q, d: it.d, c: it.c, by: it.by }; if (it.n) copy.n = it.n;
     deleteItem(key, id);
-    toast('נמחק: ' + it.t, { label: 'ביטול', fn: function () { var p = { items: {} }; p.items[id] = copy; writeList(key, p); } });
+    toast('נמחק: ' + it.t, { label: 'ביטול', ms: 7000, fn: function () { var p = { items: {} }; p.items[id] = copy; writeList(key, p); } });
   }
 
   function sendList() {
-    var n = S.mom.items.length;
-    FBM.setDoc(momRef(), { sendSeq: FBM.increment(1), sentAt: FBM.serverTimestamp(), sentCount: n, mAt: FBM.serverTimestamp() }, { merge: true })
+    var n = S.mom.items.length, prev = {}, snap = {};
+    (S.mom.sent || []).forEach(function (i) { prev[i.id] = i; });
+    S.mom.items.forEach(function (i) {
+      var o = { t: i.t, q: i.q, c: i.c }; if (i.n) o.n = i.n; if (prev[i.id] && prev[i.id].d) o.d = true;   // סימוני V של ליעד נשמרים בשליחת עדכון
+      snap[i.id] = o;
+    });
+    FBM.setDoc(momRef(), { sent: snap, sendSeq: FBM.increment(1), sentAt: FBM.serverTimestamp(), sentCount: n, mAt: FBM.serverTimestamp() },
+      { mergeFields: ['sent', 'sendSeq', 'sentAt', 'sentCount', 'mAt'] })
       .catch(function () { toast('לא הצלחתי לשלוח. נסי שוב.'); });
     toast(S.online ? 'הרשימה נשלחה ליעד ✓' : 'אין אינטרנט כרגע. הרשימה תישלח לבד כשהחיבור יחזור.', { ms: 4500 });
   }
@@ -325,10 +336,19 @@
       .catch(function () { toast('לא הצלחתי לעדכן. נסה שוב.'); });
     toast('מצוין! הרשימה נוקתה ואמא קיבלה הודעה שההזמנה בוצעה ✓', { ms: 4200 });
   }
+  function clearMomList() {
+    FBM.setDoc(momRef(), { items: {}, sentAt: FBM.deleteField(), sentCount: 0, mAt: FBM.deleteField() }, { mergeFields: ['items', 'sentAt', 'sentCount', 'mAt'] })
+      .then(function () { toast('הרשימה נוקתה'); }, function () { toast('לא הצלחתי לנקות.'); });
+  }
+  function tickSent(id) {
+    var it = findItem('sent', id); if (!it) return;
+    var p = { sent: {} }; p.sent[id] = { d: !it.d };
+    FBM.setDoc(momRef(), p, { merge: true }).catch(function () { toast('לא הצלחתי לשמור.'); });
+  }
   function listText(key) {
     var items = listOf(key).items.filter(function (i) { return !i.d; });
-    return (key === 'mom' ? 'רשימת קניות – אמא' : 'רשימת קניות') + ':\n' +
-      items.map(function (i) { return '• ' + i.t + (i.q !== 1 ? ' ×' + fmtQ(i.q) : ''); }).join('\n');
+    return (key === 'liad' ? 'רשימת קניות' : 'רשימת קניות – אמא') + ':\n' +
+      items.map(function (i) { return '• ' + i.t + (i.q !== 1 ? ' ×' + fmtQ(i.q) : '') + (i.n ? ' (' + i.n + ')' : ''); }).join('\n');
   }
   function saveQuick(arr) {
     FBM.setDoc(famRef(), { quick: arr }, { merge: true }).catch(function () { toast('לא הצלחתי לשמור.'); });
@@ -353,7 +373,7 @@
   }
   function onPush(m) {
     if (!m) return;
-    if (m.tap) { S.tab = 'list'; if (S.phase === 'main') renderMain(); return; }
+    if (m.tap) { S.tab = (C.role === 'mom' && m.type === 'ordered') ? 'check' : 'list'; if (S.phase === 'main') renderMain(); return; }
     var text = (m.title ? m.title + ' – ' : '') + (m.body || '');
     if (text) toast(text, { ms: 6000 });
   }
@@ -388,7 +408,7 @@
     return NA.getBackupInfo().then(function (i) { S.backup = i; if (S.tab === 'settings' && !focusInScreen()) drawSettings(); }, noop);
   }
   function buildSnapshot() {
-    function obj(items) { var o = {}; items.forEach(function (i) { o[i.id] = { t: i.t, q: i.q, d: i.d, c: i.c, by: i.by }; }); return o; }
+    function obj(items) { var o = {}; items.forEach(function (i) { o[i.id] = { t: i.t, q: i.q, d: i.d, c: i.c, by: i.by }; if (i.n) o[i.id].n = i.n; }); return o; }
     return {
       app: 'agala', schema: 1, savedAt: Date.now(), role: C.role, code: C.code, prefs: P,
       quick: (S.family && S.family.quick) || [], reminder: (S.family && S.family.reminder) || null,
@@ -413,7 +433,9 @@
       var out = {}, n = 0;
       Object.keys(o || {}).forEach(function (id) {
         var v = o[id]; if (n >= MAX_ITEMS || !/^[a-z0-9]{3,20}$/i.test(id) || !v || typeof v.t !== 'string') return;
-        out[id] = { t: cleanText(v.t), q: normQ(v.q), d: !!v.d, c: +v.c || Date.now(), by: v.by === 'liad' ? 'liad' : 'mom' }; n++;
+        out[id] = { t: cleanText(v.t), q: normQ(v.q), d: !!v.d, c: +v.c || Date.now(), by: v.by === 'liad' ? 'liad' : 'mom' };
+        if (typeof v.n === 'string' && v.n.trim()) out[id].n = v.n.trim().slice(0, 120);
+        n++;
       });
       return out;
     }
@@ -447,7 +469,8 @@
   /* ---------- ניווט ופריסה ---------- */
   function tabsFor() {
     var t = [{ id: 'list', label: 'רשימת קניות', icon: 'cart' }];
-    if (C.role === 'liad') t.push({ id: 'mine', label: 'רשימה ליעד', icon: 'user' });
+    if (C.role === 'mom') t.push({ id: 'check', label: 'רשימה', icon: 'checksq' });      // אמא: סימון מה שהגיע במשלוח
+    if (C.role === 'liad') { t.push({ id: 'mine', label: 'רשימה ליעד', icon: 'user' }); t.push({ id: 'mychk', label: 'הרשימה שלי', icon: 'checksq' }); }
     t.push({ id: 'settings', label: 'הגדרות', icon: 'gear' });
     return t;
   }
@@ -468,12 +491,24 @@
     $('#bars').style.display = '';
     renderNav();
     if (S.tab === 'list') drawListTab();
+    else if (S.tab === 'check' && C.role === 'mom') drawCheckTab();
     else if (S.tab === 'mine' && C.role === 'liad') drawMineTab();
+    else if (S.tab === 'mychk' && C.role === 'liad') drawMyChkTab();
     else { S.tab = 'settings'; drawSettings(); }
     renderSendBar();
     scr.scrollTop = 0; window.scrollTo(0, 0);
   }
-  function onData() {
+  /* רשימה שנשלחה לפני שהיה צ'ק ליסט: הטלפון של אמא יוצר לה צילום פעם אחת, כדי שתופיע בלשונית "רשימה" */
+  function migrateLegacySent() {
+    if (C.role !== 'mom' || S.mom.fromCache || lsGet('sentMig')) return;
+    lsSet('sentMig', '1');
+    if (S.mom.meta.sentAt && !S.mom.sent.length && S.mom.items.length) {
+      var snap = {}; S.mom.items.forEach(function (i) { var o = { t: i.t, q: i.q, c: i.c }; if (i.n) o.n = i.n; if (i.d) o.d = true; snap[i.id] = o; });
+      FBM.setDoc(momRef(), { sent: snap }, { mergeFields: ['sent'] }).catch(noop);
+    }
+  }
+  function onData(kind) {
+    if (kind === 'mom') migrateLegacySent();
     if (S.phase !== 'main') return;
     if (S.famMissing) { drawReconnect(); return; }
     refresh();
@@ -483,7 +518,9 @@
     if (S.phase !== 'main') return;
     renderNav();
     if (S.tab === 'list') updateListParts();
+    else if (S.tab === 'check') updateCheckParts();
     else if (S.tab === 'mine') updateMineParts();
+    else if (S.tab === 'mychk') updateMyChkParts();
     else if (!focusInScreen() && !S.sheet) drawSettings();
     renderSendBar();
   }
@@ -554,11 +591,54 @@
     }).join('') + '</div>';
   }
   function itemRow(key, it) {
-    var chk = C.role === 'liad';
+    var chk = C.role === 'liad' && key === 'mom';
     return '<li class="item' + (it.d ? ' done' : '') + '" data-id="' + it.id + '" data-key="' + key + '">' +
       (chk ? '<button class="chk' + (it.d ? ' on' : '') + '" data-act="tick" aria-label="סימון ' + esc(it.t) + '" aria-pressed="' + (it.d ? 'true' : 'false') + '">' + ico('check') + '</button>' : '') +
-      '<button class="name" data-act="edit" aria-label="עריכת ' + esc(it.t) + '"><span class="t">' + esc(it.t) + '</span>' + (it.q !== 1 ? '<span class="qty">×' + fmtQ(it.q) + '</span>' : '') + '</button>' +
+      '<button class="name" data-act="edit" aria-label="עריכת ' + esc(it.t) + '"><span class="tx"><span class="t">' + esc(it.t) + '</span>' + (it.n ? '<span class="nt">' + esc(it.n) + '</span>' : '') + '</span>' + (it.q !== 1 ? '<span class="qty">×' + fmtQ(it.q) + '</span>' : '') + '</button>' +
       '<button class="icon-btn danger" data-act="del" aria-label="מחיקת ' + esc(it.t) + '">' + ico('trash') + '</button></li>';
+  }
+  /* ----- צ'ק ליסט: ריבוע ריק; נגיעה במוצר מסמנת V ומוסיפה קו על הכיתוב ----- */
+  function ckRows(items, act, key) {
+    return '<ul class="list">' + items.map(function (i) {
+      return '<li class="item ck' + (i.d ? ' done' : '') + '" data-id="' + i.id + '" data-key="' + key + '"><button class="ckrow" data-act="' + act + '" aria-pressed="' + (i.d ? 'true' : 'false') + '" aria-label="' + esc(i.t) + '">' +
+        '<span class="box">' + ico('check') + '</span><span class="tx"><span class="t">' + esc(i.t) + '</span>' + (i.n ? '<span class="nt">' + esc(i.n) + '</span>' : '') + '</span>' + (i.q !== 1 ? '<span class="qty">×' + fmtQ(i.q) + '</span>' : '') + '</button></li>';
+    }).join('') + '</ul>';
+  }
+  function ckChipHtml(items, word) {
+    var done = items.filter(function (i) { return i.d; }).length;
+    if (!items.length) return '';
+    return '<span class="chip' + (done === items.length ? '' : ' mute') + '">' + (done === items.length ? ico('check') + ' ' : '') + done + ' מתוך ' + items.length + ' ' + word + '</span>';
+  }
+  /* אמא: "רשימה" – מה ששלחה, לסימון אחרי שהמשלוח מגיע */
+  function drawCheckTab() {
+    $('#screen').innerHTML = '<div class="top"><h1>הרשימה שנשלחה</h1><span id="ckChip"></span></div><div id="ckWrap"></div>';
+    updateCheckParts();
+  }
+  function updateCheckParts() {
+    var wrap = $('#ckWrap'); if (!wrap) return;
+    var items = S.mom.sent || [], m = S.mom.meta, chip = $('#ckChip');
+    if (chip) chip.innerHTML = ckChipHtml(items, 'התקבלו');
+    if (!items.length) {
+      wrap.innerHTML = '<div class="empty"><div class="big">' + ico('checksq') + '</div><b>עוד לא נשלחה רשימה</b>אחרי "שליחה", הרשימה תופיע כאן, ואפשר לסמן כל מוצר שהגיע במשלוח.</div>';
+      return;
+    }
+    wrap.innerHTML = '<div class="count">נשלחה ' + esc(relTime(m.sentAt)) + ' · נוגעים במוצר שהגיע</div>' + ckRows(items, 'cktick', 'sent') +
+      '<div class="spacer"></div><button type="button" class="btn sm danger block" data-act="ckclear">' + ico('trash') + ' ניקוי הרשימה</button>';
+  }
+  /* ליעד: "הרשימה שלי" – הרשימה האישית כצ'ק ליסט */
+  function drawMyChkTab() {
+    $('#screen').innerHTML = '<div class="top"><h1>הרשימה שלי</h1><span id="mkChip"></span></div><div id="mkWrap"></div>';
+    updateMyChkParts();
+  }
+  function updateMyChkParts() {
+    var wrap = $('#mkWrap'); if (!wrap) return;
+    var items = S.liad.items || [], chip = $('#mkChip');
+    if (chip) chip.innerHTML = ckChipHtml(items, 'סומנו');
+    if (!items.length) {
+      wrap.innerHTML = '<div class="empty"><div class="big">' + ico('checksq') + '</div><b>הרשימה שלך ריקה</b>מוסיפים מוצרים בלשונית "רשימה ליעד".</div>';
+      return;
+    }
+    wrap.innerHTML = ckRows(items, 'mktick', 'liad') + '<div class="spacer"></div><button type="button" class="btn sm danger block" data-act="mkclearall">' + ico('trash') + ' ניקוי כל הרשימה</button>';
   }
   function renderItems(key, sel) {
     var el = $(sel); if (!el) return;
@@ -569,7 +649,8 @@
         (mom ? 'כתבי כאן מה חסר בבית' + (S.speech ? ', או לחצי על "דיבור" ואמרי.' : '.') : '') + '</div>';
       return;
     }
-    el.innerHTML = '<div class="count">' + items.length + (items.length === 1 ? ' מוצר' : ' מוצרים') + '</div><ul class="list">' + items.map(function (i) { return itemRow(key, i); }).join('') + '</ul>';
+    el.innerHTML = '<div class="count">' + items.length + (items.length === 1 ? ' מוצר' : ' מוצרים') + '</div><ul class="list">' + items.map(function (i) { return itemRow(key, i); }).join('') + '</ul>' +
+      (key === 'mom' && C.role === 'liad' ? '<div class="spacer"></div><button type="button" class="btn sm danger block" data-act="momclear">' + ico('trash') + ' ניקוי הרשימה</button>' : '');
   }
   function renderSendBar() {
     var el = $('#sendbar'); if (!el) return;
@@ -579,12 +660,12 @@
     if (S.tab === 'list' && C.role === 'mom') {
       var changed = m.sentAt && (m.mAt > m.sentAt);
       if (!n) h = '';
-      else if (!m.sentAt) h = '<button class="btn primary block sendbtn" data-act="send">' + ico('send') + ' סיימתי – שליחה ליעד</button>';
-      else if (changed) h = '<button class="btn primary block sendbtn" data-act="send">' + ico('send') + ' עדכנתי – שליחת עדכון</button>';
+      else if (!m.sentAt) h = '<button class="btn primary block sendbtn" data-act="send">' + ico('send') + ' שליחה</button>';
+      else if (changed) h = '<button class="btn primary block sendbtn" data-act="send">' + ico('send') + ' שליחת עדכון</button>';
       else h = '<div class="sent-card">' + ico('check', 'lg') + '<div>הרשימה נשלחה ליעד<small>' + esc(relTime(m.sentAt)) + (S.mom.pending ? ' · ממתין לחיבור…' : '') + '</small></div></div>';
     } else if (S.tab === 'list' && C.role === 'liad') {
       if (n) h = '<div class="two"><button class="btn block" data-act="copy" data-key="mom">' + ico('copy') + ' העתקה</button><button class="btn primary block" data-act="ordered">' + ico('check') + ' הוזמן</button></div>';
-    } else if (S.tab === 'mine') {
+    } else if (S.tab === 'mychk') {
       if (S.liad.items.length) h = '<div class="two"><button class="btn block" data-act="copy" data-key="liad">' + ico('copy') + ' העתקה</button><button class="btn block" data-act="cleardone">' + ico('trash') + ' ניקוי מסומנים</button></div>';
     }
     el.innerHTML = h;
@@ -603,6 +684,7 @@
     var q = it.q;
     openSheet('<h3>עריכת מוצר</h3><input class="field" id="eName" maxlength="60" value="' + esc(it.t) + '" aria-label="שם המוצר">' +
       '<div class="stepper"><button class="btn" id="qMinus" aria-label="פחות">' + ico('minus', 'lg') + '</button><b id="qVal" aria-live="polite">' + fmtQ(q) + '</b><button class="btn" id="qPlus" aria-label="יותר">' + ico('plus', 'lg') + '</button></div>' +
+      '<textarea class="field" id="eNote" maxlength="120" rows="2" placeholder="הערה (לא חובה)" aria-label="הערה">' + esc(it.n || '') + '</textarea><div class="spacer"></div>' +
       '<div class="two"><button class="btn primary" id="eSave">שמירה</button><button class="btn" id="eCancel">ביטול</button></div><div class="spacer"></div>' +
       '<button class="btn danger block" id="eDel">' + ico('trash') + ' מחיקת המוצר</button>', function (sh) {
       function upd() { $('#qVal', sh).textContent = fmtQ(q); }
@@ -614,6 +696,8 @@
         var t = cleanText($('#eName', sh).value);
         if (!t) { toast('אי אפשר להשאיר שם ריק.'); return; }
         var f = { q: q }; if (t !== it.t) f.t = t;
+        var note = String($('#eNote', sh).value || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (note !== (it.n || '')) f.n = note ? note : FBM.deleteField();
         patchItem(key, id, f); closeSheet();
       };
       $('#eName', sh).onkeydown = function (e) { if (e.key === 'Enter') $('#eSave', sh).click(); };
@@ -659,6 +743,13 @@
         '<div class="muted small" style="margin-top:8px">אם אמא כבר שלחה רשימה ב-20 השעות האחרונות, לא תישלח תזכורת.</div></section>';
     }
 
+    if (!mom) {
+      var rs = resetCfg();
+      h += '<section class="card" id="resetCard"><h2>' + ico('trash') + 'איפוס שבועי של רשימת אמא</h2>' +
+        '<div class="row"><div class="grow"><b>ניקוי אוטומטי</b><div class="muted small">הרשימה שאמא מכינה מתנקה, והרשימה שנשלחה אליך נשארת עד "הוזמן"</div></div><label class="switch"><input type="checkbox" id="rsOn" aria-label="איפוס שבועי"' + (rs.enabled ? ' checked' : '') + '><i></i></label></div>' +
+        '<div class="spacer"></div><div class="muted small" style="margin-bottom:6px">יום</div><select class="field" id="rsDay" aria-label="יום האיפוס">' + DAYNAMES.map(function (d, i) { return '<option value="' + i + '"' + (rs.day === i ? ' selected' : '') + '>יום ' + d + '</option>'; }).join('') + '</select>' +
+        '<div class="spacer"></div><div class="muted small" style="margin-bottom:6px">שעה</div><input class="field" type="time" id="rsTime" value="' + esc(rs.time) + '" aria-label="שעת האיפוס"></section>';
+    }
     h += card('מדריך שימוש', 'help',
       '<div class="muted small" style="margin-bottom:10px">סיור קצר בכל הכפתורים, שלב אחר שלב</div><button class="btn primary block" data-act="tour">' + ico('play') + ' הפעלת המדריך</button>', 'tourCard');
 
@@ -708,6 +799,7 @@
     var rOn = $('#remOn'); if (rOn) rOn.onchange = saveReminderFromUi;
     var rt = $('#remTime'); if (rt) rt.onchange = saveReminderFromUi;
     var rm = $('#remMsg'); if (rm) rm.onchange = saveReminderFromUi;
+    ['#rsOn', '#rsDay', '#rsTime'].forEach(function (q) { var e = $(q); if (e) e.onchange = saveResetFromUi; });
     var qf = $('#qForm'); if (qf) qf.onsubmit = function (e) {
       e.preventDefault();
       var v = cleanText($('#qNew').value); if (!v) return;
@@ -716,6 +808,15 @@
       if (cur.length >= 40) { toast('אפשר עד 40 מוצרים קבועים.'); return; }
       cur.push(v); saveQuick(cur); $('#qNew').value = '';
     };
+  }
+  function resetCfg() {
+    var r = (S.family && S.family.reset) || {};
+    return { enabled: r.enabled !== false, day: typeof r.day === 'number' ? r.day : 4, time: r.time || '05:00' };
+  }
+  function saveResetFromUi() {
+    var r = { enabled: $('#rsOn').checked, day: +$('#rsDay').value, time: $('#rsTime').value || '05:00' };
+    FBM.setDoc(famRef(), { reset: r }, { merge: true }).catch(function () { toast('לא הצלחתי לשמור.'); });
+    toast(r.enabled ? 'האיפוס השבועי נשמר ✓' : 'האיפוס השבועי כבוי');
   }
   function waLink() {
     var msg = 'שלום אמא! 🛒 להתקנת אפליקציית עגלה: פתחי אותה, לחצי על "אני אמא" והקלידי את קוד החיבור: ' + fmtCode(C.code);
@@ -812,7 +913,8 @@
     }).then(function () {
       return withTimeout(FBM.setDoc(famRef(), {
         ownerUid: S.uid, createdAt: FBM.serverTimestamp(), quick: DEFAULT_QUICK,
-        reminder: { enabled: false, days: [], time: '18:00', msg: DEFAULT_MSG }
+        reminder: { enabled: false, days: [], time: '18:00', msg: DEFAULT_MSG },
+        reset: { enabled: true, day: 4, time: '05:00' }
       }), 15000);
     }).then(function () { return withTimeout(registerMember(), 15000); })
       .then(function () { lsSet('conn', JSON.stringify(C)); drawLiadNew(); })
@@ -834,20 +936,23 @@
       { tab: 'list', sel: 'button[data-act=mic]', optional: true, title: 'דיבור', text: 'או לוחצים "דיבור" ואומרים. אפשר כמה מוצרים, עם פסיק ביניהם.' },
       { tab: 'list', sel: '#quick', optional: true, title: 'מוצרים קבועים', text: 'לחיצה אחת על מוצר קבוע מוסיפה אותו.' },
       { tab: 'list', sel: item, title: 'הרשימה', text: 'נגיעה במוצר פותחת עריכה. הפח האדום מוחק, ואפשר לבטל.' },
-      { tab: 'list', demo: 'edit', sel: '.sheet .stepper', title: 'כמות', text: 'בעריכה בוחרים כמות, בקפיצות של חצי: 0.5, 1, 1.5…' },
-      { tab: 'list', demo: 'send', sel: bar, title: 'שליחה', text: 'בסיום לוחצים "סיימתי – שליחה ליעד". הוא מקבל התראה.' },
+      { tab: 'list', demo: 'edit', sel: '.sheet .stepper', title: 'כמות והערה', text: 'בעריכה בוחרים כמות בקפיצות של חצי (0.5, 1, 1.5…) ואפשר להוסיף הערה.' },
+      { tab: 'list', demo: 'send', sel: bar, title: 'שליחה', text: 'בסיום לוחצים "שליחה". הוא מקבל התראה.' },
+      { tab: 'check', sel: function () { return $('#ckWrap li.item') || $('#ckWrap'); }, title: 'קבלת המשלוח', text: 'כשהקניות מגיעות, נוגעים במוצר כדי לסמן: V וקו על הכיתוב.' },
       { sel: '.tab[data-v=settings]', title: 'הגדרות', text: 'גודל כתב, צבעים, התראות וגיבוי. גם המדריך הזה נמצא שם.' },
       { title: 'זהו! 🛒', text: 'בהצלחה. אפשר להתחיל לרשום.' }
     ];
     return [
       { title: 'ברוך הבא 👋', text: 'סיור קצר של חצי דקה.' },
-      { tab: 'list', sel: '#nav', title: 'שלוש לשוניות', text: 'רשימת אמא, הרשימה האישית שלך והגדרות.' },
+      { tab: 'list', sel: '#nav', title: 'ארבע לשוניות', text: 'רשימת אמא, רשימה אישית, הרשימה שלי והגדרות.' },
       { tab: 'list', sel: '.top', title: 'סטטוס', text: 'כאן רואים אם אמא שלחה, ומתי. תקבל גם התראה.' },
       { tab: 'list', sel: '#addForm', title: 'הוספה', text: 'אפשר להוסיף מוצרים גם אתה.' },
-      { tab: 'list', sel: function () { return $('li.item .chk') || $('#listWrap'); }, title: 'סימון וכמות', text: 'מסמנים ✓ תוך כדי הזמנה. נגיעה בשם: עריכה וכמות, בקפיצות של חצי.' },
-      { tab: 'list', demo: 'liadbar', sel: '#sendbar', title: 'העתקה והזמנה', text: '"העתקה" להדבקה באתר הסופר. "הוזמן" מנקה את הרשימה ושולח לאמא הודעה.' },
+      { tab: 'list', sel: function () { return $('li.item .chk') || $('#listWrap'); }, title: 'הרשימה של אמא', text: 'מסמנים ✓ תוך כדי הזמנה. נגיעה בשם: עריכה, כמות והערה.' },
+      { tab: 'list', demo: 'liadbar', sel: '#sendbar', title: 'העתקה והזמנה', text: '"העתקה" להדבקה באתר הסופר. "הוזמן" מנקה ושולח לאמא הודעה. "ניקוי הרשימה" למטה מנקה בלי הודעה.' },
       { tab: 'mine', sel: '#addForm', title: 'רשימה ליעד', text: 'הרשימה האישית שלך. אמא לא רואה אותה.' },
+      { tab: 'mychk', sel: function () { return $('#mkWrap li.item') || $('#mkWrap'); }, title: 'הרשימה שלי', text: 'הרשימה האישית כצ\'ק ליסט. נוגעים במוצר: V וקו.' },
       { tab: 'settings', sel: '#remCard', title: 'תזכורת לאמא', text: 'בוחרים ימים ושעה, ואמא מקבלת תזכורת.' },
+      { tab: 'settings', sel: '#resetCard', title: 'איפוס שבועי', text: 'הרשימה של אמא מתנקה לבד, כברירת מחדל ביום חמישי.' },
       { tab: 'settings', sel: '#codeCard', title: 'קוד חיבור', text: 'הקוד של אמא. אפשר לשלוח בוואטסאפ.' },
       { tab: 'settings', sel: '#tourCard', title: 'המדריך', text: 'המדריך תמיד זמין כאן.' },
       { title: 'זהו! 🛒', text: 'בהצלחה בהזמנות.' }
@@ -872,6 +977,9 @@
     root.id = 'tour'; root.className = 'on';
     root.innerHTML = '<div class="t-dim"></div><div class="t-spot" hidden></div><div class="t-card" role="dialog" aria-live="polite"></div>';
     document.body.appendChild(root);
+    document.body.classList.add('touring');                       // נועל גלילה
+    try { $('#app').inert = true; } catch (e) {}                  // נועל לחיצות ומיקוד באפליקציה עצמה
+    ['touchmove', 'wheel'].forEach(function (ev) { root.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false }); });
     root.addEventListener('click', function (e) {
       var b = e.target.closest('[data-tour]'); if (!b) return;
       var a = b.getAttribute('data-tour');
@@ -890,9 +998,9 @@
     if (st.tab && S.tab !== st.tab) { S.tab = st.tab; renderMain(); }
     if (st.demo === 'edit') {
       S.tourSheet = true;
-      openSheet('<h3>עריכת מוצר</h3><input class="field" value="חלב" disabled aria-label="שם המוצר"><div class="stepper"><button class="btn" tabindex="-1">' + ico('minus', 'lg') + '</button><b>1.5</b><button class="btn" tabindex="-1">' + ico('plus', 'lg') + '</button></div><div class="two"><button class="btn primary" tabindex="-1">שמירה</button><button class="btn" tabindex="-1">ביטול</button></div>');
+      openSheet('<h3>עריכת מוצר</h3><input class="field" value="חלב" disabled aria-label="שם המוצר"><div class="stepper"><button class="btn" tabindex="-1">' + ico('minus', 'lg') + '</button><b>1.5</b><button class="btn" tabindex="-1">' + ico('plus', 'lg') + '</button></div><textarea class="field" disabled rows="2" placeholder="הערה (לא חובה)"></textarea><div class="spacer"></div><div class="two"><button class="btn primary" tabindex="-1">שמירה</button><button class="btn" tabindex="-1">ביטול</button></div>');
     }
-    if (st.demo === 'send' && !$('#sendbar button')) S.tourBar = '<button class="btn primary block sendbtn" tabindex="-1">' + ico('send') + ' סיימתי – שליחה ליעד</button>';
+    if (st.demo === 'send' && !$('#sendbar button')) S.tourBar = '<button class="btn primary block sendbtn" tabindex="-1">' + ico('send') + ' שליחה</button>';
     if (st.demo === 'liadbar' && !$('#sendbar button')) S.tourBar = '<div class="two"><button class="btn block" tabindex="-1">' + ico('copy') + ' העתקה</button><button class="btn primary block" tabindex="-1">' + ico('check') + ' הוזמן</button></div>';
     if (S.tourBar !== null) renderSendBar();
     setTimeout(function () {
@@ -938,6 +1046,8 @@
     var T = S.tour; if (!T) return;
     S.tour = null;
     window.removeEventListener('resize', onTourResize);
+    document.body.classList.remove('touring');
+    try { $('#app').inert = false; } catch (e) {}
     var root = $('#tour'); if (root) root.parentNode.removeChild(root);
     tourCleanup();
     lsSet(tourFlag(), '1');
@@ -1009,6 +1119,22 @@
       case 'edit': openEdit(key, id); break;
       case 'del': removeWithUndo(key, id); break;
       case 'tick': var it = findItem(key, id); if (it) patchItem(key, id, { d: !it.d }); break;
+      case 'cktick': tickSent(id); break;
+      case 'ckclear':
+        confirmSheet({ title: 'לנקות את הרשימה?', body: 'כל המוצרים והסימונים ברשימה שנשלחה יימחקו. הרשימה שאת מכינה לא תיפגע.', ok: 'כן, ניקוי', cancel: 'חזרה', danger: true }).then(function (ok) {
+          if (!ok) return;
+          FBM.setDoc(momRef(), { sent: {} }, { mergeFields: ['sent'] }).then(function () { toast('הרשימה נוקתה'); }, function () { toast('לא הצלחתי לנקות.'); });
+        });
+        break;
+      case 'momclear':
+        confirmSheet({ title: 'לנקות את הרשימה של אמא?', body: 'כל המוצרים ברשימה ימחקו. אמא לא תקבל הודעה (לשליחת הודעה "ההזמנה בוצעה" לחץ "הוזמן").', ok: 'כן, ניקוי', cancel: 'חזרה', danger: true }).then(function (ok) { if (ok) clearMomList(); });
+        break;
+      case 'mktick': var mi = findItem('liad', id); if (mi) patchItem('liad', id, { d: !mi.d }); break;
+      case 'mkclearall':
+        confirmSheet({ title: 'לנקות את כל הרשימה שלך?', body: 'כל המוצרים ברשימה האישית יימחקו.', ok: 'כן, ניקוי', cancel: 'חזרה', danger: true }).then(function (ok) {
+          if (ok) FBM.setDoc(liadRef(), { items: {} }, { mergeFields: ['items'] }).then(function () { toast('הרשימה נוקתה'); }, function () { toast('לא הצלחתי לנקות.'); });
+        });
+        break;
       case 'send':
         confirmSheet({ title: 'לשלוח את הרשימה ליעד?', body: 'יש בה ' + S.mom.items.length + (S.mom.items.length === 1 ? ' מוצר.' : ' מוצרים.'), ok: 'כן, שליחה', cancel: 'חזרה' }).then(function (ok) { if (ok) sendList(); });
         break;

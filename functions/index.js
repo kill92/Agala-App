@@ -126,9 +126,31 @@ async function runReminders(now) {
   return sent;
 }
 
+/* איפוס שבועי: מנקה את הרשימה שאמא מכינה (לא את "הרשימה שנשלחה" של ליעד – היא נשארת עד "הוזמן").
+   ברירת מחדל: יום חמישי 05:00. נשלט מההגדרות (families/{id}.reset). */
+const DEFAULT_RESET = { enabled: true, day: 4, time: '05:00' };
+async function runWeeklyReset(now) {
+  const snap = await db.collection('families').get();
+  let n = 0;
+  for (const doc of snap.docs) {
+    const r = Object.assign({}, DEFAULT_RESET, doc.get('reset') || {});
+    if (!shouldRemind({ enabled: r.enabled, days: [r.day], time: r.time }, doc.get('lastResetDate'), now, TZ)) continue;
+    const today = tzParts(now, TZ).date;
+    const ref = doc.ref.collection('lists').doc('mom');
+    const mom = await ref.get();
+    if (mom.exists) {
+      await ref.update({ items: {}, sentCount: 0, sentAt: admin.firestore.FieldValue.delete(), mAt: admin.firestore.FieldValue.delete() });
+      n++;
+    }
+    await doc.ref.update({ lastResetDate: today });
+  }
+  return n;
+}
+
 exports.weeklyReminders = onSchedule({ schedule: 'every 15 minutes', timeZone: TZ }, async () => {
   const n = await runReminders(new Date());
-  logger.info('reminders sent', { n });
+  const r = await runWeeklyReset(new Date());
+  logger.info('scheduled run', { reminders: n, resets: r });
 });
 
-exports._test = { tzParts, shouldRemind, summarize, runReminders, push };
+exports._test = { tzParts, shouldRemind, summarize, runReminders, runWeeklyReset, push };
