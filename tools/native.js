@@ -17,7 +17,9 @@ if (!fs.existsSync(path.join(root, 'platforms', 'android'))) {
 if (!fs.existsSync(path.join(root, 'plugins', 'cordova-plugin-firebasex'))) {
   if (!run(cdv + ' plugin add cordova-plugin-firebasex --variable FIREBASE_ANALYTICS_COLLECTION_ENABLED=false --variable FIREBASE_PERFORMANCE_COLLECTION_ENABLED=false --variable FIREBASE_CRASHLYTICS_COLLECTION_ENABLED=false --variable ANDROID_ICON_ACCENT=#12805C')) process.exit(1);
 }
-if (!fs.existsSync(path.join(root, 'plugins', 'cordova-plugin-agala-native'))) {
-  if (!run(cdv + ' plugin add ./plugins/agala-native')) process.exit(1);
+// הפלאגין שלנו תמיד מותקן מחדש מהמקור, כדי ששינויי קוד נייטיב (למשל הכתבה רציפה) ייכנסו ל-APK
+if (fs.existsSync(path.join(root, 'plugins', 'cordova-plugin-agala-native'))) {
+  run(cdv + ' plugin rm cordova-plugin-agala-native');
 }
+if (!run(cdv + ' plugin add ./plugins/agala-native')) process.exit(1);
 console.log('\n✅ פלטפורמה ופלאגינים מוכנים. השלב הבא: npm run apk');

@@ -75,7 +75,7 @@ async function push(fid, role, notification, data) {
     if (r.success) return null;
     const code = (r.error && r.error.code) || '';
     logger.warn('push failed', { code });
-    if (/registration-token-not-registered|invalid-registration-token|invalid-argument/.test(code)) {
+    if (/registration-token-not-registered|invalid-registration-token/.test(code)) {
       return targets[i].ref.update({ token: admin.firestore.FieldValue.delete() }).catch(() => null);
     }
     return null;
@@ -147,10 +147,41 @@ async function runWeeklyReset(now) {
   return n;
 }
 
+/* בדיקת התראות מתוך האפליקציה: המכשיר כותב testSeq למסמך החבר שלו, והענן שולח התראה לטוקן ומחזיר את התוצאה ב-testResult */
+async function handleMemberTest(before, after, ref) {
+  if (!after || !after.testSeq || after.testSeq === (before || {}).testSeq) return null;
+  let result;
+  if (!after.token) result = { ok: false, code: 'no-token' };
+  else {
+    try {
+      await admin.messaging().send({
+        token: after.token,
+        notification: { title: 'בדיקת התראות ✓', body: 'ההתראות עובדות במכשיר הזה' },
+        data: { type: 'test' },
+        android: { priority: 'high', ttl: 600 * 1000, notification: { channelId: 'agala_main', icon: 'notification_icon', color: '#12805C', sound: 'default' } }
+      });
+      result = { ok: true };
+    } catch (e) {
+      logger.warn('test push failed', { code: e && e.code, msg: e && e.message });
+      result = { ok: false, code: String((e && e.code) || 'error'), msg: String((e && e.message) || '').slice(0, 160) };
+    }
+  }
+  result.seq = after.testSeq;
+  result.at = Date.now();
+  await ref.update({ testResult: result });
+  return result;
+}
+
+exports.onMemberWrite = onDocumentWritten('families/{fid}/members/{uid}', async (event) => {
+  const before = event.data.before.exists ? event.data.before.data() : {};
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  await handleMemberTest(before, after, event.data.after.ref);
+});
+
 exports.weeklyReminders = onSchedule({ schedule: 'every 15 minutes', timeZone: TZ }, async () => {
   const n = await runReminders(new Date());
   const r = await runWeeklyReset(new Date());
   logger.info('scheduled run', { reminders: n, resets: r });
 });
 
-exports._test = { tzParts, shouldRemind, summarize, runReminders, runWeeklyReset, push };
+exports._test = { tzParts, shouldRemind, summarize, runReminders, runWeeklyReset, push, handleMemberTest };

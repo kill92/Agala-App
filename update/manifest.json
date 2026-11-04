@@ -1,8 +1,8 @@
 {
-  "version": 4,
+  "version": 5,
   "minApi": 1,
-  "sig": "bwv9IUg+RX52s7kqV37gy6jcwkJSI8jKtqwBIvD6OWMSVJxfEoWLGqZ1tsArr/gON5MOgBZdIE+hBqRypDsp8Q==",
-  "sha256": "5eb492779d051a6b89ee345d36549f9f1ec817fafcdd6377589845a5e3717317",
-  "size": 95882,
-  "date": "2026-11-02T14:45:28.067Z"
+  "sig": "bMj/L6KVOnr2Ln3f7v5b4vGk2nkJb1t6+T9EieMvQ+be7lb1NHFlGuv6S5KYcRYJvIm4rrYFCp4jS7KHwFJ2Cg==",
+  "sha256": "b561ca4f187c6720f2b079ebc386abd9904414eabe4f52ed1da673d0e136aacd",
+  "size": 120693,
+  "date": "2026-11-04T22:22:01.137Z"
 }

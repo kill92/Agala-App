@@ -31,12 +31,23 @@ service cloud.firestore {
 
       match /members/{uid} {
         // כל מכשיר רושם רק את עצמו; הצטרפות דורשת שהקבוצה קיימת (כלומר שהקוד נכון)
-        allow create, update: if signedIn()
+        allow create: if signedIn()
           && request.auth.uid == uid
           && exists(/databases/$(database)/documents/families/$(fid))
           && request.resource.data.role in ['mom', 'liad']
-          && request.resource.data.keys().hasOnly(['role', 'platform', 'token', 'updatedAt']);
-        allow read, delete: if false;
+          && request.resource.data.keys().hasOnly(['role', 'platform', 'token', 'updatedAt', 'testSeq'])
+          && (!('testSeq' in request.resource.data) || request.resource.data.testSeq is number);
+        // testResult נכתב רק ע"י הענן (בדיקת התראות)
+        allow update: if signedIn()
+          && request.auth.uid == uid
+          && exists(/databases/$(database)/documents/families/$(fid))
+          && request.resource.data.role in ['mom', 'liad']
+          && request.resource.data.keys().hasOnly(['role', 'platform', 'token', 'updatedAt', 'testSeq', 'testResult'])
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['testResult'])
+          && (!('testSeq' in request.resource.data) || request.resource.data.testSeq is number);
+        // המכשיר קורא רק את המסמך של עצמו (לתוצאת בדיקת ההתראות)
+        allow get: if signedIn() && request.auth.uid == uid;
+        allow list, delete: if false;
       }
 
       match /lists/{lid} {

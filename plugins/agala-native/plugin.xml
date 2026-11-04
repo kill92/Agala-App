@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
         xmlns:android="http://schemas.android.com/apk/res/android"
-        id="cordova-plugin-agala-native" version="1.0.0">
+        id="cordova-plugin-agala-native" version="1.1.0">
   <name>AgalaNative</name>
   <description>גיבוי יומי מקומי, הכתבה בקול והרשאות לאפליקציית עגלה</description>
 
@@ -22,9 +22,13 @@
       <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
       <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
       <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+      <uses-permission android:name="android.permission.RECORD_AUDIO"/>
       <queries>
         <intent>
           <action android:name="android.speech.action.RECOGNIZE_SPEECH"/>
+        </intent>
+        <intent>
+          <action android:name="android.speech.RecognitionService"/>
         </intent>
       </queries>
     </config-file>
@@ -44,6 +48,7 @@
     <source-file src="src/android/BackupCore.java" target-dir="src/com/liad/agala"/>
     <source-file src="src/android/BackupAlarmReceiver.java" target-dir="src/com/liad/agala"/>
     <source-file src="src/android/BootReceiver.java" target-dir="src/com/liad/agala"/>
+    <source-file src="src/android/LiveSpeech.java" target-dir="src/com/liad/agala"/>
     <source-file src="src/android/AgalaNative.java" target-dir="src/com/liad/agala"/>
   </platform>
 </plugin>

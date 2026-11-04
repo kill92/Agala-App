@@ -57,8 +57,22 @@
     return String(10000000 + (a[0] % 90000000));
   }
   function fmtCode(c) { return c ? c.slice(0, 4) + '-' + c.slice(4) : ''; }
-  function normQ(v) { var q = +v; if (!(q >= 0.5)) return 1; q = Math.round(q * 2) / 2; return Math.min(99, q); }
-  function fmtQ(q) { return Number.isInteger(q) ? String(q) : q.toFixed(1); }
+  /* כמות: יחידות (מספר שלם, קפיצות של 1) או ק"ג (u='k', קפיצות של 0.1; מותר גם 0.25 וכד' מהכתבה) */
+  function normU(u, q) { return (u === 'k' || (+q > 0 && !Number.isInteger(+q))) ? 'k' : ''; }
+  function normQ(v, u) {
+    var q = +v;
+    if (normU(u, q) === 'k') { if (!(q >= 0.05)) return 1; return Math.min(99, Math.round(q * 1000) / 1000); }
+    if (!(q >= 1)) return 1; return Math.min(99, Math.round(q));
+  }
+  function trimNum(q) { return String(+(+q).toFixed(3)); }
+  function fmtQ(q) { return trimNum(q); }
+  /* תווית כמות לתצוגה ברשימה; ריק כשזה יחידה אחת */
+  function qtyLabel(it) {
+    if (it.u === 'k') return it.q < 1 ? Math.round(it.q * 1000) + ' גרם' : trimNum(it.q) + ' ק״ג';
+    return it.q !== 1 ? '×' + fmtQ(it.q) : '';
+  }
+  function qtyHtml(it) { var l = qtyLabel(it); return l ? '<span class="qty' + (it.u === 'k' ? ' w' : '') + '">' + esc(l) + '</span>' : ''; }
+  function qtyFields(q, u) { return u === 'k' ? { q: q, u: 'k' } : { q: q }; }
   function tsMs(x) {
     if (!x) return 0;
     if (typeof x === 'number') return x;
@@ -142,16 +156,20 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.innerHTML = ''; }, opt.ms || (opt.label ? 6500 : 3200));
   }
-  function openSheet(html, mount) {
+  function openSheet(html, mount, noFocus) {
     var sh = $('#sheet');
     sh.innerHTML = '<div class="sheet" role="dialog" aria-modal="true">' + html + '</div>';
     sh.hidden = false; S.sheet = true;
     sh.onclick = function (e) { if (e.target === sh) closeSheet(); };
     if (mount) mount(sh);
-    var f = $('input.field', sh) || $('button.primary', sh);
+    var f = noFocus ? null : ($('input.field', sh) || $('button.primary', sh));
     if (f) setTimeout(function () { try { f.focus(); } catch (e) {} }, 60);
   }
-  function closeSheet() { var sh = $('#sheet'); sh.hidden = true; sh.innerHTML = ''; S.sheet = false; }
+  function closeSheet() {
+    var sh = $('#sheet'); sh.hidden = true; sh.innerHTML = ''; S.sheet = false;
+    if (S.dict && S.dict.live && NA && NA.cancelListening) { try { NA.cancelListening().catch(noop); } catch (e) {} }
+    S.dict = null;
+  }
   function confirmSheet(o) {
     return new Promise(function (res) {
       openSheet('<h3>' + esc(o.title) + '</h3><p>' + esc(o.body || '') + '</p>' +
@@ -198,19 +216,37 @@
   function listRef(key) { return key === 'mom' ? momRef() : liadRef(); }
   function listOf(key) { return key === 'mom' ? S.mom : key === 'sent' ? { items: S.mom.sent || [] } : S.liad; }
 
-  function getToken(ms) {
-    if (S.token) return Promise.resolve(S.token);
+  function getToken(ms, fresh) {
+    if (S.token && !fresh) return Promise.resolve(S.token);
     var FP = window.FirebasePlugin;
-    if (!FP || !FP.getToken) return Promise.resolve(null);
+    if (!FP || !FP.getToken) { S.tokErr = 'no-plugin'; return Promise.resolve(null); }
     return withTimeout(new Promise(function (res) {
-      FP.getToken(function (t) { S.token = t || null; res(S.token); }, function () { res(null); });
-    }), ms).catch(function () { return null; });
+      FP.getToken(function (t) { S.token = t || null; S.tokErr = t ? '' : 'empty'; res(S.token); }, function (e) { S.tokErr = String((e && e.message) || e || 'error'); res(null); });
+    }), ms).catch(function () { S.tokErr = 'timeout'; return null; });
   }
   function registerMember() {
     return getToken(4000).then(function (tok) {
       var d = { role: C.role, platform: 'android', updatedAt: FBM.serverTimestamp() };
       if (tok) d.token = tok;
-      return FBM.setDoc(memberRef(), d, { merge: true });
+      return FBM.setDoc(memberRef(), d, { merge: true }).then(function () { if (tok) lsSet('tokSaved', tok + '|' + C.code + '|' + C.role); });
+    });
+  }
+  /* מוודא שהטוקן של המכשיר שמור בשרת (בלעדיו אין התראות). מנסה שוב ושוב עד שמצליח, ובכל חזרה לאפליקציה */
+  function syncToken(force) {
+    if (!window.FirebasePlugin || !S.uid || !S.db || !C.code || !C.role) return Promise.resolve(false);
+    return getToken(10000, force).then(function (tok) {
+      if (!tok) return false;
+      var mark = tok + '|' + C.code + '|' + C.role;
+      if (!force && lsGet('tokSaved') === mark) return true;
+      return FBM.setDoc(memberRef(), { role: C.role, platform: 'android', token: tok, updatedAt: FBM.serverTimestamp() }, { merge: true })
+        .then(function () { lsSet('tokSaved', mark); return true; });
+    }).catch(function () { return false; });
+  }
+  var tokTries = 0;
+  function tokenLoop() {
+    syncToken(tokTries === 0).then(function (ok) {
+      if (ok || ++tokTries > 30) { tokTries = ok ? 1 : tokTries; return; }
+      setTimeout(tokenLoop, Math.min(60000, 5000 * tokTries));
     });
   }
 
@@ -218,7 +254,7 @@
     var items = [];
     Object.keys(m || {}).forEach(function (id) {
       var v = m[id];
-      if (v && typeof v.t === 'string' && v.t) items.push({ id: id, t: v.t, q: normQ(v.q), d: !!v.d, c: +v.c || 0, by: v.by || '', n: typeof v.n === 'string' ? v.n : '' });
+      if (v && typeof v.t === 'string' && v.t) items.push({ id: id, t: v.t, q: normQ(v.q, v.u), u: normU(v.u, v.q), d: !!v.d, o: !!v.o, g: +v.g || 0, c: +v.c || 0, by: v.by || '', n: typeof v.n === 'string' ? v.n : '' });
     });
     items.sort(function (a, b) { return a.c - b.c || (a.id < b.id ? -1 : 1); });
     return items;
@@ -278,6 +314,7 @@
     var id = forceId || rid();
     var it = { t: text, q: 1, d: false, c: Date.now(), by: C.role };
     if (extra) for (var k in extra) it[k] = extra[k];
+    if (it.u !== 'k') delete it.u;
     var p = { items: {} }; p.items[id] = it;
     var st = stampFor(key); for (var s in st) p[s] = st[s];
     writeList(key, p);
@@ -311,7 +348,7 @@
   }
   function removeWithUndo(key, id) {
     var it = findItem(key, id); if (!it) return;
-    var copy = { t: it.t, q: it.q, d: it.d, c: it.c, by: it.by }; if (it.n) copy.n = it.n;
+    var copy = { t: it.t, q: it.q, d: it.d, c: it.c, by: it.by }; if (it.u === 'k') copy.u = 'k'; if (it.n) copy.n = it.n;
     deleteItem(key, id);
     toast('נמחק: ' + it.t, { label: 'ביטול', ms: 7000, fn: function () { var p = { items: {} }; p.items[id] = copy; writeList(key, p); } });
   }
@@ -319,8 +356,13 @@
   function sendList() {
     var n = S.mom.items.length, prev = {}, snap = {};
     (S.mom.sent || []).forEach(function (i) { prev[i.id] = i; });
+    var active = !!S.mom.meta.sentAt, seq = (S.mom.meta.sendSeq || 0) + 1;
     S.mom.items.forEach(function (i) {
-      var o = { t: i.t, q: i.q, c: i.c }; if (i.n) o.n = i.n; if (prev[i.id] && prev[i.id].d) o.d = true;   // סימוני V של ליעד נשמרים בשליחת עדכון
+      var p = prev[i.id], o = { t: i.t, q: i.q, c: i.c }; if (i.u === 'k') o.u = 'k'; if (i.n) o.n = i.n; if (p && p.d) o.d = true;   // סימוני "התקבל" של אמא נשמרים בשליחת עדכון
+      if (active) {   // עדכון: מה שחדש/שונה מסומן (g) לליעד; סימוני "הוזמן" (o) נשמרים רק למה שלא השתנה
+        var changed = !p || p.t !== i.t || p.q !== i.q || (p.u || '') !== (i.u || '') || (p.n || '') !== (i.n || '');
+        if (changed) o.g = seq; else { if (p.g) o.g = p.g; if (p.o) o.o = true; }
+      }
       snap[i.id] = o;
     });
     FBM.setDoc(momRef(), { sent: snap, sendSeq: FBM.increment(1), sentAt: FBM.serverTimestamp(), sentCount: n, mAt: FBM.serverTimestamp() },
@@ -346,9 +388,9 @@
     FBM.setDoc(momRef(), p, { merge: true }).catch(function () { toast('לא הצלחתי לשמור.'); });
   }
   function listText(key) {
-    var items = listOf(key).items.filter(function (i) { return !i.d; });
-    return (key === 'liad' ? 'רשימת קניות' : 'רשימת קניות – אמא') + ':\n' +
-      items.map(function (i) { return '• ' + i.t + (i.q !== 1 ? ' ×' + fmtQ(i.q) : '') + (i.n ? ' (' + i.n + ')' : ''); }).join('\n');
+    var items = (key === 'sent' ? orderItems().filter(function (i) { return !i.o; }) : listOf(key).items.filter(function (i) { return !i.d; }));
+    return (key === 'liad' ? 'רשימת קניות' : key === 'sent' ? 'רשימה להזמנה' : 'רשימת קניות – אמא') + ':\n' +
+      items.map(function (i) { return '• ' + i.t + (qtyLabel(i) ? ' ' + qtyLabel(i) : '') + (i.n ? ' (' + i.n + ')' : ''); }).join('\n');
   }
   function saveQuick(arr) {
     FBM.setDoc(famRef(), { quick: arr }, { merge: true }).catch(function () { toast('לא הצלחתי לשמור.'); });
@@ -369,11 +411,12 @@
   }
   function askPerm() {
     var FP = window.FirebasePlugin; if (!FP) return;
-    FP.grantPermission(function (ok) { S.perm = !!ok; lsSet('permAsked', '1'); refresh(); if (S.tab === 'settings') drawSettings(); }, noop);
+    FP.grantPermission(function (ok) { S.perm = !!ok; lsSet('permAsked', '1'); refresh(); syncToken(true); if (S.tab === 'settings') drawSettings(); }, noop);
   }
   function onPush(m) {
     if (!m) return;
-    if (m.tap) { S.tab = (C.role === 'mom' && m.type === 'ordered') ? 'check' : 'list'; if (S.phase === 'main') renderMain(); return; }
+    if (m.tap) { S.tab = (C.role === 'mom' && m.type === 'ordered') ? 'check' : (C.role === 'liad' && m.type === 'sent') ? 'order' : 'list'; if (S.phase === 'main') renderMain(); return; }
+    S.pushSeen = Date.now();
     var text = (m.title ? m.title + ' – ' : '') + (m.body || '');
     if (text) toast(text, { ms: 6000 });
   }
@@ -390,12 +433,13 @@
       try {
         FP.createChannel({ id: 'agala_main', name: 'התראות עגלה', description: 'תזכורות ועדכוני רשימת קניות', importance: 4, sound: true, vibration: true, light: true, visibility: 1 }, noop, noop);
         FP.onMessageReceived(onPush, noop);
-        FP.onTokenRefresh(function (t) { S.token = t; if (S.uid && S.db) registerMember().catch(noop); }, noop);
+        FP.onTokenRefresh(function (t) { S.token = t; syncToken(false); }, noop);
       } catch (e) {}
-      refreshPerm();
+      refreshPerm(); tokTries = 0; tokenLoop();
       setTimeout(function () { if (!S.tour) askPermSheet(); }, 1800);
     }
     if (NA) {
+      if (NA.isLiveSpeechAvailable) NA.isLiveSpeechAvailable().then(function (v) { S.live = !!v; }, function () { S.live = false; });
       NA.isSpeechAvailable().then(function (v) {
         S.speech = !!v;
         if (S.speech && S.phase === 'main' && (S.tab === 'list' || S.tab === 'mine') && !focusInScreen()) renderMain();
@@ -403,12 +447,59 @@
       NA.init(23, 50).then(loadBackupInfo, noop);
     }
   }
+  var DIAG_HINT = {
+    'no-token': 'למכשיר אין טוקן התראות. ודא/י שיש אינטרנט ושההתקנה הושלמה, וסגור/י ופתח/י את האפליקציה.',
+    'messaging/registration-token-not-registered': 'הטוקן לא תקף (כנראה אחרי התקנה מחדש). סגור/י ופתח/י את האפליקציה ונסה/י שוב.',
+    'messaging/invalid-registration-token': 'הטוקן לא תקף. סגור/י ופתח/י את האפליקציה ונסה/י שוב.',
+    'messaging/third-party-auth-error': 'בעיית הרשאות של Firebase Cloud Messaging. יש לבדוק ב-Firebase: Project settings ← Cloud Messaging ← "Firebase Cloud Messaging API (V1)" צריך להיות Enabled.',
+    'messaging/mismatched-credential': 'הטוקן שייך לפרויקט Firebase אחר. צריך להתקין APK שנבנה עם google-services.json של הפרויקט הנכון.',
+    'messaging/sender-id-mismatch': 'הטוקן שייך לפרויקט Firebase אחר. צריך להתקין APK שנבנה עם google-services.json של הפרויקט הנכון.'
+  };
+  function openNotifTest() {
+    var FP = window.FirebasePlugin; if (!FP) return;
+    openSheet('<h3>' + ico('bell') + ' בדיקת התראות</h3><ul class="diag" id="dgList"></ul><div class="muted small" id="dgNote" style="margin:10px 0"></div>' +
+      '<button class="btn primary block" id="dgSend" disabled>שליחת התראת בדיקה אליי</button><div class="spacer"></div><button class="btn block" id="dgClose">סגירה</button>', function (sh) {
+      var rows = [['perm', 'הרשאת התראות במכשיר'], ['tok', 'מזהה התראות של המכשיר'], ['srv', 'נשמר בשרת'], ['cloud', 'הענן שלח התראה']], st = {}, unsub = null, timer = null;
+      function draw() {
+        $('#dgList', sh).innerHTML = rows.map(function (r) {
+          var v = st[r[0]] || ['…', ''];
+          return '<li class="dg"><span class="dgi ' + v[0] + '">' + (v[0] === 'ok' ? '✓' : v[0] === 'bad' ? '✗' : v[0] === 'wait' ? '…' : '–') + '</span><div><b>' + r[1] + '</b><div class="muted small">' + esc(v[1] || '') + '</div></div></li>';
+        }).join('');
+      }
+      function set(k, ok, t) { st[k] = [ok, t]; draw(); }
+      function close() { if (unsub) { try { unsub(); } catch (e) {} } clearTimeout(timer); closeSheet(); }
+      $('#dgClose', sh).onclick = close;
+      st.perm = ['wait', '']; st.tok = ['wait', '']; st.srv = ['wait', '']; st.cloud = ['none', 'לחצו על "שליחת התראת בדיקה"']; draw();
+      FP.hasPermission(function (ok) { S.perm = !!ok; set('perm', ok ? 'ok' : 'bad', ok ? 'מאושרת' : 'כבויה – יש לאשר בהגדרות התראות של המכשיר'); }, function () { set('perm', 'bad', 'לא ידוע'); });
+      syncToken(true).then(function (ok) {
+        if (S.token) set('tok', 'ok', S.token.slice(0, 10) + '…'); else set('tok', 'bad', 'לא התקבל (' + (S.tokErr || '?') + '). בדקו אינטרנט, הפעלה מחדש של האפליקציה, ושקובץ google-services.json נכון.');
+        set('srv', ok ? 'ok' : 'bad', ok ? 'הטוקן רשום בענן' : 'לא נשמר – אין חיבור לשרת?');
+        $('#dgSend', sh).disabled = !ok;
+      });
+      $('#dgSend', sh).onclick = function () {
+        var btn = this; btn.disabled = true; var seq = Date.now();
+        set('cloud', 'wait', 'שולח… (עד 20 שניות)');
+        $('#dgNote', sh).textContent = 'ההתראה אמורה להופיע בעוד כמה שניות. אם האפליקציה פתוחה היא תופיע כהודעה למעלה; אפשר גם לצאת למסך הבית ולראות אותה בשורת ההתראות.';
+        if (unsub) { try { unsub(); } catch (e) {} }
+        unsub = FBM.onSnapshot(memberRef(), function (snap) {
+          var d = snap.exists() ? snap.data() : null, r = d && d.testResult;
+          if (!r || r.seq !== seq) return;
+          clearTimeout(timer);
+          if (r.ok) set('cloud', 'ok', 'נשלחה בהצלחה מהענן. אם לא הופיעה במכשיר – בדקו חיסכון בסוללה / "הגדרות התראות במכשיר".');
+          else set('cloud', 'bad', (DIAG_HINT[r.code] || 'שגיאה: ' + r.code) + (r.msg ? ' [' + r.msg.slice(0, 80) + ']' : ''));
+          btn.disabled = false;
+        }, noop);
+        FBM.setDoc(memberRef(), { role: C.role, platform: 'android', token: S.token || '', updatedAt: FBM.serverTimestamp(), testSeq: seq }, { merge: true }).catch(function () { set('cloud', 'bad', 'לא הצלחתי לכתוב לשרת'); btn.disabled = false; });
+        timer = setTimeout(function () { set('cloud', 'bad', 'הענן לא הגיב. כנראה שהפונקציות לא הותקנו בגרסה האחרונה: להריץ npm run deploy:firebase'); btn.disabled = false; }, 20000);
+      };
+    }, true);
+  }
   function loadBackupInfo() {
     if (!NA) return Promise.resolve();
     return NA.getBackupInfo().then(function (i) { S.backup = i; if (S.tab === 'settings' && !focusInScreen()) drawSettings(); }, noop);
   }
   function buildSnapshot() {
-    function obj(items) { var o = {}; items.forEach(function (i) { o[i.id] = { t: i.t, q: i.q, d: i.d, c: i.c, by: i.by }; if (i.n) o[i.id].n = i.n; }); return o; }
+    function obj(items) { var o = {}; items.forEach(function (i) { o[i.id] = { t: i.t, q: i.q, d: i.d, c: i.c, by: i.by }; if (i.u === 'k') o[i.id].u = 'k'; if (i.n) o[i.id].n = i.n; }); return o; }
     return {
       app: 'agala', schema: 1, savedAt: Date.now(), role: C.role, code: C.code, prefs: P,
       quick: (S.family && S.family.quick) || [], reminder: (S.family && S.family.reminder) || null,
@@ -433,7 +524,8 @@
       var out = {}, n = 0;
       Object.keys(o || {}).forEach(function (id) {
         var v = o[id]; if (n >= MAX_ITEMS || !/^[a-z0-9]{3,20}$/i.test(id) || !v || typeof v.t !== 'string') return;
-        out[id] = { t: cleanText(v.t), q: normQ(v.q), d: !!v.d, c: +v.c || Date.now(), by: v.by === 'liad' ? 'liad' : 'mom' };
+        out[id] = { t: cleanText(v.t), q: normQ(v.q, v.u), d: !!v.d, c: +v.c || Date.now(), by: v.by === 'liad' ? 'liad' : 'mom' };
+        if (normU(v.u, v.q) === 'k') out[id].u = 'k';
         if (typeof v.n === 'string' && v.n.trim()) out[id].n = v.n.trim().slice(0, 120);
         n++;
       });
@@ -470,14 +562,14 @@
   function tabsFor() {
     var t = [{ id: 'list', label: 'רשימת קניות', icon: 'cart' }];
     if (C.role === 'mom') t.push({ id: 'check', label: 'רשימה', icon: 'checksq' });      // אמא: סימון מה שהגיע במשלוח
-    if (C.role === 'liad') { t.push({ id: 'mine', label: 'רשימה ליעד', icon: 'user' }); t.push({ id: 'mychk', label: 'הרשימה שלי', icon: 'checksq' }); }
+    if (C.role === 'liad') { t.push({ id: 'order', label: 'רשימה להזמנה', icon: 'send' }); t.push({ id: 'mine', label: 'רשימה ליעד', icon: 'user' }); t.push({ id: 'mychk', label: 'הרשימה שלי', icon: 'checksq' }); }
     t.push({ id: 'settings', label: 'הגדרות', icon: 'gear' });
     return t;
   }
   function renderNav() {
     var nav = $('#nav');
     nav.innerHTML = tabsFor().map(function (t) {
-      var dot = (t.id === 'settings' && C.role === 'liad' && !reminder().enabled && S.family) ? '<i class="dot" aria-hidden="true"></i>' : '';
+      var dot = ((t.id === 'settings' && C.role === 'liad' && !reminder().enabled && S.family) || (t.id === 'order' && S.tab !== 'order' && orderUnseen())) ? '<i class="dot" aria-hidden="true"></i>' : '';
       return '<button class="tab" data-act="tab" data-v="' + t.id + '"' + (S.tab === t.id ? ' aria-current="page"' : '') + '>' + ico(t.icon) + '<span>' + t.label + '</span>' + dot + '</button>';
     }).join('');
   }
@@ -494,6 +586,7 @@
     else if (S.tab === 'check' && C.role === 'mom') drawCheckTab();
     else if (S.tab === 'mine' && C.role === 'liad') drawMineTab();
     else if (S.tab === 'mychk' && C.role === 'liad') drawMyChkTab();
+    else if (S.tab === 'order' && C.role === 'liad') drawOrderTab();
     else { S.tab = 'settings'; drawSettings(); }
     renderSendBar();
     scr.scrollTop = 0; window.scrollTo(0, 0);
@@ -503,7 +596,7 @@
     if (C.role !== 'mom' || S.mom.fromCache || lsGet('sentMig')) return;
     lsSet('sentMig', '1');
     if (S.mom.meta.sentAt && !S.mom.sent.length && S.mom.items.length) {
-      var snap = {}; S.mom.items.forEach(function (i) { var o = { t: i.t, q: i.q, c: i.c }; if (i.n) o.n = i.n; if (i.d) o.d = true; snap[i.id] = o; });
+      var snap = {}; S.mom.items.forEach(function (i) { var o = { t: i.t, q: i.q, c: i.c }; if (i.u === 'k') o.u = 'k'; if (i.n) o.n = i.n; if (i.d) o.d = true; snap[i.id] = o; });
       FBM.setDoc(momRef(), { sent: snap }, { mergeFields: ['sent'] }).catch(noop);
     }
   }
@@ -521,6 +614,7 @@
     else if (S.tab === 'check') updateCheckParts();
     else if (S.tab === 'mine') updateMineParts();
     else if (S.tab === 'mychk') updateMyChkParts();
+    else if (S.tab === 'order') updateOrderParts();
     else if (!focusInScreen() && !S.sheet) drawSettings();
     renderSendBar();
   }
@@ -594,14 +688,14 @@
     var chk = C.role === 'liad' && key === 'mom';
     return '<li class="item' + (it.d ? ' done' : '') + '" data-id="' + it.id + '" data-key="' + key + '">' +
       (chk ? '<button class="chk' + (it.d ? ' on' : '') + '" data-act="tick" aria-label="סימון ' + esc(it.t) + '" aria-pressed="' + (it.d ? 'true' : 'false') + '">' + ico('check') + '</button>' : '') +
-      '<button class="name" data-act="edit" aria-label="עריכת ' + esc(it.t) + '"><span class="tx"><span class="t">' + esc(it.t) + '</span>' + (it.n ? '<span class="nt">' + esc(it.n) + '</span>' : '') + '</span>' + (it.q !== 1 ? '<span class="qty">×' + fmtQ(it.q) + '</span>' : '') + '</button>' +
+      '<button class="name" data-act="edit" aria-label="עריכת ' + esc(it.t) + '"><span class="tx"><span class="t">' + esc(it.t) + '</span>' + (it.n ? '<span class="nt">' + esc(it.n) + '</span>' : '') + '</span>' + qtyHtml(it) + '</button>' +
       '<button class="icon-btn danger" data-act="del" aria-label="מחיקת ' + esc(it.t) + '">' + ico('trash') + '</button></li>';
   }
   /* ----- צ'ק ליסט: ריבוע ריק; נגיעה במוצר מסמנת V ומוסיפה קו על הכיתוב ----- */
   function ckRows(items, act, key) {
     return '<ul class="list">' + items.map(function (i) {
       return '<li class="item ck' + (i.d ? ' done' : '') + '" data-id="' + i.id + '" data-key="' + key + '"><button class="ckrow" data-act="' + act + '" aria-pressed="' + (i.d ? 'true' : 'false') + '" aria-label="' + esc(i.t) + '">' +
-        '<span class="box">' + ico('check') + '</span><span class="tx"><span class="t">' + esc(i.t) + '</span>' + (i.n ? '<span class="nt">' + esc(i.n) + '</span>' : '') + '</span>' + (i.q !== 1 ? '<span class="qty">×' + fmtQ(i.q) + '</span>' : '') + '</button></li>';
+        '<span class="box">' + ico('check') + '</span><span class="tx"><span class="t">' + esc(i.t) + '</span>' + (i.n ? '<span class="nt">' + esc(i.n) + '</span>' : '') + '</span>' + qtyHtml(i) + '</button></li>';
     }).join('') + '</ul>';
   }
   function ckChipHtml(items, word) {
@@ -626,6 +720,40 @@
       '<div class="spacer"></div><button type="button" class="btn sm danger block" data-act="ckclear">' + ico('trash') + ' ניקוי הרשימה</button>';
   }
   /* ליעד: "הרשימה שלי" – הרשימה האישית כצ'ק ליסט */
+  /* ליעד: "רשימה להזמנה" – מה שאמא שלחה (כולל עדכונים), צ'ק ליסט להזמנה; מוצרים שאמא עדכנה בכחול עד שנצפו פעם אחת */
+  function orderItems() { return S.mom.meta.sentAt ? (S.mom.sent || []) : []; }
+  function orderUnseen() {
+    var seen = +lsGet('ordSeen') || 0;
+    return orderItems().some(function (i) { return i.g > seen; });
+  }
+  function drawOrderTab() {
+    S.orderBase = +lsGet('ordSeen') || 0;
+    $('#screen').innerHTML = '<div class="top"><h1>רשימה להזמנה</h1><span id="orChip"></span></div><div id="orWrap"></div>';
+    updateOrderParts();
+  }
+  function updateOrderParts() {
+    var wrap = $('#orWrap'); if (!wrap) return;
+    var items = orderItems(), m = S.mom.meta, chip = $('#orChip'), base = S.orderBase || 0;
+    var done = items.filter(function (i) { return i.o; }).length;
+    if (chip) chip.innerHTML = items.length ? '<span class="chip' + (done === items.length ? '' : ' mute') + '">' + (done === items.length ? ico('check') + ' ' : '') + done + ' מתוך ' + items.length + ' סומנו</span>' : '';
+    if (!items.length) {
+      wrap.innerHTML = '<div class="empty"><div class="big">' + ico('send') + '</div><b>אין הזמנה פעילה</b>כשאמא תשלח רשימה, היא תופיע כאן.</div>';
+      return;
+    }
+    var upd = items.filter(function (i) { return i.g > base; }).length;
+    wrap.innerHTML = '<div class="muted small ordmeta">נשלחה ' + esc(relTime(m.sentAt)) + '</div>' +
+      (upd ? '<div class="updnote">' + upd + (upd === 1 ? ' מוצר עודכן' : ' מוצרים עודכנו') + ' – מסומנים בכחול</div>' : '') +
+      '<ul class="list">' + items.map(function (i) {
+        return '<li class="item ck' + (i.o ? ' done' : '') + (i.g > base ? ' upd' : '') + '" data-id="' + i.id + '" data-key="sent"><button class="ckrow" data-act="ordtick" aria-pressed="' + (i.o ? 'true' : 'false') + '" aria-label="' + esc(i.t) + (i.g > base ? ' (עודכן)' : '') + '">' +
+          '<span class="box">' + ico('check') + '</span><span class="tx"><span class="t">' + esc(i.t) + '</span>' + (i.n ? '<span class="nt">' + esc(i.n) + '</span>' : '') + '</span>' + qtyHtml(i) + '</button></li>';
+      }).join('') + '</ul>';
+    lsSet('ordSeen', String(Math.max(+lsGet('ordSeen') || 0, m.sendSeq || 0)));
+  }
+  function tickOrder(id) {
+    var it = findItem('sent', id); if (!it) return;
+    var p = { sent: {} }; p.sent[id] = { o: !it.o };
+    FBM.setDoc(momRef(), p, { merge: true }).catch(function () { toast('לא הצלחתי לשמור.'); });
+  }
   function drawMyChkTab() {
     $('#screen').innerHTML = '<div class="top"><h1>הרשימה שלי</h1><span id="mkChip"></span></div><div id="mkWrap"></div>';
     updateMyChkParts();
@@ -665,6 +793,8 @@
       else h = '<div class="sent-card">' + ico('check', 'lg') + '<div>הרשימה נשלחה ליעד<small>' + esc(relTime(m.sentAt)) + (S.mom.pending ? ' · ממתין לחיבור…' : '') + '</small></div></div>';
     } else if (S.tab === 'list' && C.role === 'liad') {
       if (n) h = '<div class="two"><button class="btn block" data-act="copy" data-key="mom">' + ico('copy') + ' העתקה</button><button class="btn primary block" data-act="ordered">' + ico('check') + ' הוזמן</button></div>';
+    } else if (S.tab === 'order') {
+      if (orderItems().length) h = '<div class="two"><button class="btn block" data-act="copy" data-key="sent">' + ico('copy') + ' העתקה</button><button class="btn primary block" data-act="ordered">' + ico('check') + ' הוזמן</button></div>';
     } else if (S.tab === 'mychk') {
       if (S.liad.items.length) h = '<div class="two"><button class="btn block" data-act="copy" data-key="liad">' + ico('copy') + ' העתקה</button><button class="btn block" data-act="cleardone">' + ico('trash') + ' ניקוי מסומנים</button></div>';
     }
@@ -679,48 +809,244 @@
   function updateMineParts() { renderItems('liad', '#listWrap'); }
 
   /* ----- חלונות עריכה ----- */
+  function bindHold(btn, fn) {
+    var t1, t2, held = false;
+    function stop() { clearTimeout(t1); clearInterval(t2); }
+    btn.addEventListener('pointerdown', function () { held = false; stop(); t1 = setTimeout(function () { held = true; fn(); t2 = setInterval(fn, 120); }, 450); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { btn.addEventListener(ev, stop); });
+    btn.addEventListener('click', function (e) { if (held) { held = false; e.preventDefault(); return; } fn(); });
+    btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  }
   function openEdit(key, id) {
     var it = findItem(key, id); if (!it) return;
-    var q = it.q;
+    var q = it.q, u = it.u === 'k' ? 'k' : '';
     openSheet('<h3>עריכת מוצר</h3><input class="field" id="eName" maxlength="60" value="' + esc(it.t) + '" aria-label="שם המוצר">' +
-      '<div class="stepper"><button class="btn" id="qMinus" aria-label="פחות">' + ico('minus', 'lg') + '</button><b id="qVal" aria-live="polite">' + fmtQ(q) + '</b><button class="btn" id="qPlus" aria-label="יותר">' + ico('plus', 'lg') + '</button></div>' +
-      '<textarea class="field" id="eNote" maxlength="120" rows="2" placeholder="הערה (לא חובה)" aria-label="הערה">' + esc(it.n || '') + '</textarea><div class="spacer"></div>' +
+      '<div class="seg unitseg" role="group" aria-label="סוג כמות"><button type="button" id="uK">קילו</button><button type="button" id="uU">יחידות</button></div>' +
+      '<div class="stepper"><button class="btn" id="qMinus" aria-label="פחות">' + ico('minus', 'lg') + '</button><b id="qVal" aria-live="polite"></b><button class="btn" id="qPlus" aria-label="יותר">' + ico('plus', 'lg') + '</button></div>' +
+      (it.n ? '' : '<button type="button" class="btn block" id="eNoteBtn">✎ כתיבת הערה</button>') +
+      '<textarea class="field" id="eNote" maxlength="120" rows="2" placeholder="הערה (לא חובה)" aria-label="הערה"' + (it.n ? '' : ' hidden') + '>' + esc(it.n || '') + '</textarea><div class="spacer"></div>' +
       '<div class="two"><button class="btn primary" id="eSave">שמירה</button><button class="btn" id="eCancel">ביטול</button></div><div class="spacer"></div>' +
       '<button class="btn danger block" id="eDel">' + ico('trash') + ' מחיקת המוצר</button>', function (sh) {
-      function upd() { $('#qVal', sh).textContent = fmtQ(q); }
-      $('#qMinus', sh).onclick = function () { q = Math.max(0.5, q - 0.5); upd(); };
-      $('#qPlus', sh).onclick = function () { q = Math.min(99, q + 0.5); upd(); };
+      function upd() {
+        $('#qVal', sh).textContent = u === 'k' ? trimNum(q) : String(q);
+        $('#uK', sh).setAttribute('aria-pressed', u === 'k' ? 'true' : 'false');
+        $('#uU', sh).setAttribute('aria-pressed', u === 'k' ? 'false' : 'true');
+      }
+      function step(dir) {
+        if (u === 'k') q = Math.min(99, Math.max(0.1, Math.round((q + dir * 0.1) * 1000) / 1000));
+        else q = Math.min(99, Math.max(1, Math.round(q) + dir));
+        upd();
+      }
+      $('#uK', sh).onclick = function () { if (u !== 'k') { u = 'k'; if (q === 1) q = 0.5; } upd(); };
+      $('#uU', sh).onclick = function () { if (u === 'k') { u = ''; q = Math.max(1, Math.round(q)); } upd(); };
+      bindHold($('#qMinus', sh), function () { step(-1); });
+      bindHold($('#qPlus', sh), function () { step(1); });
+      var nb = $('#eNoteBtn', sh);
+      if (nb) nb.onclick = function () { nb.hidden = true; var ta = $('#eNote', sh); ta.hidden = false; ta.focus(); };
+      upd();
       $('#eCancel', sh).onclick = closeSheet;
       $('#eDel', sh).onclick = function () { closeSheet(); removeWithUndo(key, id); };
       $('#eSave', sh).onclick = function () {
         var t = cleanText($('#eName', sh).value);
         if (!t) { toast('אי אפשר להשאיר שם ריק.'); return; }
-        var f = { q: q }; if (t !== it.t) f.t = t;
+        var f = { q: q }; if (u === 'k') f.u = 'k'; else if (it.u === 'k') f.u = FBM.deleteField();
+        if (t !== it.t) f.t = t;
         var note = String($('#eNote', sh).value || '').replace(/\s+/g, ' ').trim().slice(0, 120);
         if (note !== (it.n || '')) f.n = note ? note : FBM.deleteField();
         patchItem(key, id, f); closeSheet();
       };
       $('#eName', sh).onkeydown = function (e) { if (e.key === 'Enter') $('#eSave', sh).click(); };
+    }, true);
+  }
+  /* ----- הכתבה בקול: ניתוח "מוצר + כמות" ----- */
+  var NUMW = { 'אחד': 1, 'אחת': 1, 'שניים': 2, 'שנים': 2, 'שתיים': 2, 'שתים': 2, 'שני': 2, 'שתי': 2, 'שלושה': 3, 'שלוש': 3, 'ארבעה': 4, 'ארבע': 4, 'חמישה': 5, 'חמש': 5, 'שישה': 6, 'שש': 6, 'שבעה': 7, 'שבע': 7, 'שמונה': 8, 'תשעה': 9, 'תשע': 9, 'עשרה': 10, 'עשר': 10, 'עשרים': 20, 'שלושים': 30, 'ארבעים': 40, 'חמישים': 50, 'שישים': 60, 'שבעים': 70, 'שמונים': 80, 'תשעים': 90, 'מאה': 100, 'מאתיים': 200 };
+  var FRACW = { 'חצי': 0.5, 'רבע': 0.25 };
+  var KG_RE = /^(קילו|קילוגרם|קילוגרמים|קילוים|קג|ק"ג|ק״ג|kg)$/i;
+  var G_RE = /^(גרם|גרמים|גר|g)$/i;
+  var NOQ_RE = /^(ליטר|ליטרים|מל|מ"ל|מ״ל|מיליליטר|אחוז|אחוזים|%|סמ|ס"מ|ס״מ|מטר|מטרים)$/;
+  var PACK_RE = /^(יחידות|יחידה|חבילות|חבילה|קרטונים|קרטון|בקבוקים|בקבוק|שקיות|שקית|קופסאות|קופסה|פחיות|פחית|ארגזים|ארגז|צנצנות|צנצנת|מארזים|מארז|שישיות|שישייה|גלילים|גליל|חתיכות|חתיכה)$/;
+  function numTok(w) {
+    if (/^\d+(\.\d+)?$/.test(w)) return { v: +w, k: 'd' };
+    if (NUMW.hasOwnProperty(w)) return { v: NUMW[w], k: 'w' };
+    if (w === 'מאות') return { k: 'm' };
+    if (FRACW.hasOwnProperty(w)) return { v: FRACW[w], k: 'f' };
+    if (w.length > 2 && w.charAt(0) === 'ו') {
+      var r = w.slice(1);
+      if (NUMW.hasOwnProperty(r)) return { v: NUMW[r], k: 'w', and: true };
+      if (FRACW.hasOwnProperty(r)) return { v: FRACW[r], k: 'f', and: true };
+    }
+    return null;
+  }
+  /* מזהה ביטוי כמות שמתחיל במקום i. מחזיר {q,u,len} או null (אז המילה היא חלק משם המוצר) */
+  function parseQty(t, i) {
+    var j = i, total = 0, has = false, prev = '';
+    for (; j < t.length; j++) {
+      var x = numTok(t[j]); if (!x) break;
+      if (x.k === 'd') { if (has) break; total = x.v; has = true; }
+      else if (x.k === 'm') { if (!has || prev !== 'w') break; total = total * 100; }
+      else if (x.k === 'f') { if (prev === 'f' || (has && !x.and)) break; total += x.v; has = true; }
+      else { if (prev === 'd' || prev === 'f' || (has && prev === 'w' && x.v >= 10 && !x.and && total % 10 !== 0 && total < 100)) break; total += x.v; has = true; }
+      prev = x.k;
+    }
+    var w = t[j] || '', kg = KG_RE.test(w), gr = G_RE.test(w);
+    if (!has) { if (!kg) return null; total = 1; has = true; }
+    if (kg || gr) {
+      j++;
+      if (kg && t[j]) { var y = numTok(t[j]); if (y && y.k === 'f' && y.and) { total += y.v; j++; } }
+      var q = kg ? total : total / 1000;
+      if (!(q > 0)) return null;
+      return { q: Math.min(99, Math.round(q * 1000) / 1000), u: 'k', len: j - i };
+    }
+    if (NOQ_RE.test(w)) return null;
+    if (!Number.isInteger(total) || total < 1 || total > 99) return null;
+    if (PACK_RE.test(w)) j++;
+    return { q: total, u: '', len: j - i };
+  }
+  /* "גבינה צהובה 200 גרם חלב 2 לחם" => [{t:'גבינה צהובה',q:0.2,u:'k'},{t:'חלב',q:2},{t:'לחם',q:1}] */
+  function parseSpoken(text, withQty) {
+    var out = [];
+    String(text || '').replace(/(\d),(\d)/g, '$1.$2').replace(/(\d)([א-תa-z])/gi, '$1 $2')
+      .replace(/(^|\s)(?:פסיקים?|פסיק)(?=\s|$)/g, ',').split(/[,،;\n]+/).forEach(function (seg) {
+        var t = seg.split(/\s+/).filter(function (w) { return w && !/^[-–—־:.]+$/.test(w); });
+        if (!withQty) { var nm = cleanText(t.join(' ')); if (nm) out.push({ t: nm, q: 1, u: '' }); return; }
+        var buf = [], pend = null;
+        function push(q) { var nm = cleanText(buf.join(' ')); buf = []; if (nm) out.push({ t: nm, q: q ? q.q : 1, u: q ? q.u : '' }); }
+        for (var i = 0; i < t.length;) {
+          var q = parseQty(t, i);
+          if (q) {
+            if (buf.length) { if (pend) { push(pend); pend = q; } else { push(q); } }
+            else pend = q;
+            i += q.len;
+          } else { buf.push(t[i]); i++; }
+        }
+        if (buf.length) push(pend);
+      });
+    return out;
+  }
+
+  /* ----- הכתבה בקול: מסך "הכתבה" עם כפתור סיום ----- */
+  /* מצב רציף (APK חדש): מאזין עד "סיום". אחרת: חלון הקול של גוגל + "עוד מוצר" + "סיום". */
+  function dictate(key) {
+    if (!NA) return;
+    var live = !!S.live;
+    S.dict = { key: key, parts: [], rows: [], busy: false, live: live, partial: '', stopping: false, state: live ? 'starting' : 'idle' };
+    var fem = C.role === 'mom';
+    openSheet('<h3>' + ico('mic') + ' הכתבה</h3>' +
+      '<p class="small" style="margin-bottom:10px">' + (fem ? 'אמרי' : 'אמור') + ' שם מוצר וכמות, ואז <b>"פסיק"</b>, ואז המוצר הבא. למשל: <b>חלב 2 פסיק גבינה צהובה 200 גרם פסיק לחם 3</b>. ' + (live ? 'כשמסיימים – ' + (fem ? 'לחצי' : 'לחץ') + ' על <b>סיום</b>.' : '') + '</p>' +
+      '<div class="row" style="margin-bottom:8px"><div class="grow"><b>לרשום גם כמויות</b></div><label class="switch"><input type="checkbox" id="dQty" aria-label="לרשום גם כמויות"' + (P.vq === 0 ? '' : ' checked') + '><i></i></label></div>' +
+      '<div id="dLive" class="dlive" aria-live="polite"><span class="pulse"></span><span id="dLiveTx"></span></div>' +
+      '<ul class="drows" id="dRows"></ul>' +
+      '<button class="btn block" id="dMore">' + ico('mic', 'lg') + ' <span id="dMoreTx">דברי</span></button><div class="spacer"></div>' +
+      '<button class="btn primary block big" id="dDone">סיום</button><div class="spacer"></div>' +
+      '<button class="btn ghost block" id="dCancel">ביטול</button>' +
+      '<div id="dSure" hidden><p style="margin:0 0 10px"><b>לבטל את ההכתבה?</b> המוצרים שהוכתבו לא יתווספו לרשימה.</p><div class="two"><button class="btn danger" id="dSureYes">ביטול ההכתבה</button><button class="btn" id="dSureNo">חזרה</button></div></div>', function (sh) {
+      sh.onclick = null;   // לא נסגר בלחיצה בחוץ, כדי לא לאבד מה שהוכתב
+      $('#dQty', sh).onchange = function () { P.vq = this.checked ? 1 : 0; savePrefs(); reparse(); };
+      $('#dMore', sh).onclick = listen;
+      $('#dDone', sh).onclick = function () { finish(false); };
+      $('#dCancel', sh).onclick = dictCancel;
+      $('#dSureYes', sh).onclick = closeSheet;
+      $('#dSureNo', sh).onclick = function () { $('#dSure', sh).hidden = true; $('#dCancel', sh).hidden = false; };
+      drawRows();
+      if (live) liveStart(); else listen();
+    }, true);
+  }
+  function dictRows() {
+    var d = S.dict, wq = P.vq !== 0; d.rows = [];
+    d.parts.forEach(function (p) { parseSpoken(p, wq).forEach(function (r) { d.rows.push(r); }); });
+  }
+  function reparse() { if (!S.dict) return; dictRows(); drawRows(); }
+  function drawRows() {
+    var d = S.dict, ul = $('#dRows'); if (!d || !ul) return;
+    ul.innerHTML = d.rows.map(function (r, i) {
+      return '<li class="drow"><span class="t">' + esc(r.t) + '</span>' + qtyHtml(r) + '<button type="button" class="x" data-i="' + i + '" aria-label="הסרת ' + esc(r.t) + '">' + ico('x') + '</button></li>';
+    }).join('');
+    $$('.x', ul).forEach(function (b) { b.onclick = function () { d.rows.splice(+b.getAttribute('data-i'), 1); drawRows(); }; });
+    var fem = C.role === 'mom';
+    $('#dMore').hidden = d.live;
+    $('#dLive').hidden = !d.live;
+    if (d.live) {
+      var tx = d.stopping ? 'מסיימת…' : d.state === 'starting' ? 'מתחילה להקשיב…' : d.state === 'listening' ? (fem ? 'מקשיבה… אפשר לדבר' : 'מקשיב… אפשר לדבר') : 'ההקלטה נעצרה';
+      $('#dLiveTx').textContent = d.partial ? '“' + d.partial + '”' : tx;
+      $('#dLive').classList.toggle('on', d.state === 'listening' && !d.stopping);
+      $('#dDone').disabled = d.stopping;
+      $('#dDone').textContent = d.rows.length ? 'סיום – הוספה לרשימה (' + d.rows.length + ')' : 'סיום';
+    } else {
+      $('#dDone').disabled = !d.rows.length;
+      $('#dDone').textContent = d.rows.length ? 'סיום – הוספה לרשימה (' + d.rows.length + ')' : 'סיום';
+      $('#dMoreTx').textContent = d.rows.length ? 'עוד מוצר' : 'דברי';
+    }
+  }
+  function addParts(text) {
+    var d = S.dict, add = parseSpoken(text, P.vq !== 0);
+    d.parts.push(String(text || ''));
+    add.forEach(function (r) { d.rows.push(r); });
+    return add.length;
+  }
+  function liveStart() {
+    var d = S.dict;
+    NA.startListening('he-IL', function (ev) {
+      if (S.dict !== d || !ev) return;
+      if (ev.t === 'ready') { d.state = 'listening'; drawRows(); }
+      else if (ev.t === 'partial') { d.partial = ev.text || ''; drawRows(); }
+      else if (ev.t === 'final') { d.partial = ''; addParts(ev.text); drawRows(); }
+      else if (ev.t === 'end') {
+        d.state = 'ended'; d.partial = '';
+        if (d.stopping) finish(true); else { d.live = false; drawRows(); toast('ההקלטה נעצרה. אפשר להמשיך או ללחוץ סיום.'); }
+      } else if (ev.t === 'error') {
+        d.partial = '';
+        if (!d.rows.length && !d.parts.length) {   // אין הרשאה / אין שירות: עוברים לחלון הקול הרגיל
+          d.live = false; d.state = 'idle'; drawRows(); listen();
+        } else { d.live = false; d.state = 'ended'; drawRows(); toast('ההקלטה נעצרה. אפשר להמשיך או ללחוץ סיום.'); }
+      }
     });
   }
-  function dictate(key) {
+  function listen() {
+    var d = S.dict; if (!d || d.busy) return;
+    d.busy = true;
     NA.startSpeech('he-IL').then(function (text) {
-      var parts = String(text || '').split(/[,،\n]+/).map(cleanText).filter(Boolean);
-      var added = [], dup = 0;
-      parts.forEach(function (p) {
-        var r = addItem(key, p);
-        if (r === 'empty' || r === 'full') return;
-        if (r.indexOf('dup:') === 0) { dup++; return; }
-        added.push({ id: r, t: p });
-      });
-      if (added.length) {
-        toast('נוסף: ' + added.map(function (a) { return a.t; }).join(', '), { label: 'ביטול', fn: function () { added.forEach(function (a) { deleteItem(key, a.id); }); } });
-      } else if (dup) toast('כבר ברשימה');
-      else toast('לא שמעתי. אפשר לנסות שוב או להקליד.');
+      if (S.dict !== d) return;
+      d.busy = false;
+      var n = addParts(text);
+      drawRows();
+      if (!n) toast('לא שמעתי. אפשר ללחוץ שוב ולדבר.');
     }, function (e) {
-      if (e && (e.cancelled || e === 'cancelled' || e.message === 'cancelled')) return;
-      toast('הזנה בקול לא עבדה. אפשר להקליד.');
+      if (S.dict !== d) return;
+      d.busy = false;
+      var cancelled = e && (e.cancelled || e === 'cancelled' || e.message === 'cancelled');
+      if (!cancelled) toast('הזנה בקול לא עבדה. אפשר להקליד.');
+      if (!d.rows.length && !cancelled) closeSheet();
     });
+  }
+  function finish(ended) {
+    var d = S.dict; if (!d) return;
+    if (d.live && !ended) {   // מצב רציף: מבקשים מהמערכת לסיים, ומחכים לתוצאה האחרונה
+      if (d.stopping) return;
+      d.stopping = true; drawRows();
+      try { NA.stopListening().catch(noop); } catch (e) {}
+      setTimeout(function () { if (S.dict === d) finish(true); }, 2600);
+      return;
+    }
+    if (!d.rows.length) { closeSheet(); if (d.live || ended) toast('לא שמעתי מוצרים.'); return; }
+    var key = d.key, added = [], dup = 0, full = false;
+    d.rows.forEach(function (r) {
+      var r2 = addItem(key, r.t, null, { q: normQ(r.q, r.u), u: r.u });
+      if (r2 === 'empty') return;
+      if (r2 === 'full') { full = true; return; }
+      if (r2.indexOf('dup:') === 0) { dup++; return; }
+      added.push({ id: r2, t: r.t });
+    });
+    closeSheet();
+    if (added.length) {
+      toast('נוסף: ' + added.map(function (a) { return a.t; }).join(', ') + (dup ? ' (' + dup + ' כבר היו ברשימה)' : ''), { ms: 7000, label: 'ביטול', fn: function () { added.forEach(function (a) { deleteItem(key, a.id); }); } });
+    } else if (full) toast('הרשימה מלאה (' + MAX_ITEMS + ' מוצרים).');
+    else if (dup) toast('כבר ברשימה');
+  }
+  function dictCancel() {
+    var d = S.dict; if (!d || !d.rows.length) { closeSheet(); return; }
+    var sure = $('#dSure'); if (!sure) { closeSheet(); return; }
+    if (!sure.hidden) { $('#dSureNo').click(); return; }   // לחיצה נוספת על "חזרה" של המכשיר = חזרה להכתבה
+    sure.hidden = false; $('#dCancel').hidden = true;
   }
 
   /* ----- הגדרות ----- */
@@ -770,7 +1096,8 @@
     h += card('התראות', 'bell',
       '<div class="row"><div class="grow">התראות במכשיר</div>' + permTxt + '</div><div class="spacer"></div>' +
       (S.perm === false ? '<button class="btn primary block" data-act="perm">אישור התראות</button><div class="spacer"></div>' : '') +
-      (NA ? '<button class="btn block" data-act="notifSettings">הגדרות התראות במכשיר</button>' : ''));
+      (NA ? '<button class="btn block" data-act="notifSettings">הגדרות התראות במכשיר</button><div class="spacer"></div>' : '') +
+      (window.FirebasePlugin ? '<button class="btn block" data-act="notiftest">' + ico('bell') + ' בדיקת התראות</button>' : ''));
 
     var b = S.backup;
     h += card('גיבוי במכשיר', 'save',
@@ -933,10 +1260,10 @@
       { title: 'ברוכה הבאה 👋', text: 'בדקה נלמד איך רושמים קניות.' },
       { tab: 'list', sel: '#addInput', title: 'כתיבה', text: 'כותבים כאן מה חסר בבית.' },
       { tab: 'list', sel: '#addForm button[type=submit]', title: 'הוספה', text: 'לוחצים "הוספה" והמוצר עולה לרשימה.' },
-      { tab: 'list', sel: 'button[data-act=mic]', optional: true, title: 'דיבור', text: 'או לוחצים "דיבור" ואומרים. אפשר כמה מוצרים, עם פסיק ביניהם.' },
+      { tab: 'list', sel: 'button[data-act=mic]', optional: true, title: 'דיבור', text: 'או לוחצים "דיבור" ואומרים שם וכמות, "פסיק", ועוד מוצר. בסוף לוחצים "סיום".' },
       { tab: 'list', sel: '#quick', optional: true, title: 'מוצרים קבועים', text: 'לחיצה אחת על מוצר קבוע מוסיפה אותו.' },
       { tab: 'list', sel: item, title: 'הרשימה', text: 'נגיעה במוצר פותחת עריכה. הפח האדום מוחק, ואפשר לבטל.' },
-      { tab: 'list', demo: 'edit', sel: '.sheet .stepper', title: 'כמות והערה', text: 'בעריכה בוחרים כמות בקפיצות של חצי (0.5, 1, 1.5…) ואפשר להוסיף הערה.' },
+      { tab: 'list', demo: 'edit', sel: '.sheet .stepper', title: 'כמות והערה', text: 'בעריכה בוחרים "יחידות" (קפיצות של 1) או "קילו" (קפיצות של 100 גרם), ואפשר ללחוץ "כתיבת הערה".' },
       { tab: 'list', demo: 'send', sel: bar, title: 'שליחה', text: 'בסיום לוחצים "שליחה". הוא מקבל התראה.' },
       { tab: 'check', sel: function () { return $('#ckWrap li.item') || $('#ckWrap'); }, title: 'קבלת המשלוח', text: 'כשהקניות מגיעות, נוגעים במוצר כדי לסמן: V וקו על הכיתוב.' },
       { sel: '.tab[data-v=settings]', title: 'הגדרות', text: 'גודל כתב, צבעים, התראות וגיבוי. גם המדריך הזה נמצא שם.' },
@@ -944,11 +1271,12 @@
     ];
     return [
       { title: 'ברוך הבא 👋', text: 'סיור קצר של חצי דקה.' },
-      { tab: 'list', sel: '#nav', title: 'ארבע לשוניות', text: 'רשימת אמא, רשימה אישית, הרשימה שלי והגדרות.' },
+      { tab: 'list', sel: '#nav', title: 'חמש לשוניות', text: 'רשימת אמא, רשימה להזמנה, רשימה אישית, הרשימה שלי והגדרות.' },
       { tab: 'list', sel: '.top', title: 'סטטוס', text: 'כאן רואים אם אמא שלחה, ומתי. תקבל גם התראה.' },
       { tab: 'list', sel: '#addForm', title: 'הוספה', text: 'אפשר להוסיף מוצרים גם אתה.' },
       { tab: 'list', sel: function () { return $('li.item .chk') || $('#listWrap'); }, title: 'הרשימה של אמא', text: 'מסמנים ✓ תוך כדי הזמנה. נגיעה בשם: עריכה, כמות והערה.' },
       { tab: 'list', demo: 'liadbar', sel: '#sendbar', title: 'העתקה והזמנה', text: '"העתקה" להדבקה באתר הסופר. "הוזמן" מנקה ושולח לאמא הודעה. "ניקוי הרשימה" למטה מנקה בלי הודעה.' },
+      { tab: 'order', sel: function () { return $('#orWrap li.item') || $('#orWrap'); }, title: 'רשימה להזמנה', text: 'מה שאמא שלחה, בצ\'ק ליסט להזמנה. מוצרים שאמא עדכנה בכחול, עד שראית אותם פעם אחת.' },
       { tab: 'mine', sel: '#addForm', title: 'רשימה ליעד', text: 'הרשימה האישית שלך. אמא לא רואה אותה.' },
       { tab: 'mychk', sel: function () { return $('#mkWrap li.item') || $('#mkWrap'); }, title: 'הרשימה שלי', text: 'הרשימה האישית כצ\'ק ליסט. נוגעים במוצר: V וקו.' },
       { tab: 'settings', sel: '#remCard', title: 'תזכורת לאמא', text: 'בוחרים ימים ושעה, ואמא מקבלת תזכורת.' },
@@ -998,7 +1326,7 @@
     if (st.tab && S.tab !== st.tab) { S.tab = st.tab; renderMain(); }
     if (st.demo === 'edit') {
       S.tourSheet = true;
-      openSheet('<h3>עריכת מוצר</h3><input class="field" value="חלב" disabled aria-label="שם המוצר"><div class="stepper"><button class="btn" tabindex="-1">' + ico('minus', 'lg') + '</button><b>1.5</b><button class="btn" tabindex="-1">' + ico('plus', 'lg') + '</button></div><textarea class="field" disabled rows="2" placeholder="הערה (לא חובה)"></textarea><div class="spacer"></div><div class="two"><button class="btn primary" tabindex="-1">שמירה</button><button class="btn" tabindex="-1">ביטול</button></div>');
+      openSheet('<h3>עריכת מוצר</h3><input class="field" value="חלב" disabled aria-label="שם המוצר"><div class="seg unitseg"><button type="button" aria-pressed="false" tabindex="-1">קילו</button><button type="button" aria-pressed="true" tabindex="-1">יחידות</button></div><div class="stepper"><button class="btn" tabindex="-1">' + ico('minus', 'lg') + '</button><b>2</b><button class="btn" tabindex="-1">' + ico('plus', 'lg') + '</button></div><button type="button" class="btn block" tabindex="-1">✎ כתיבת הערה</button><div class="spacer"></div><div class="two"><button class="btn primary" tabindex="-1">שמירה</button><button class="btn" tabindex="-1">ביטול</button></div>', null, true);
     }
     if (st.demo === 'send' && !$('#sendbar button')) S.tourBar = '<button class="btn primary block sendbtn" tabindex="-1">' + ico('send') + ' שליחה</button>';
     if (st.demo === 'liadbar' && !$('#sendbar button')) S.tourBar = '<div class="two"><button class="btn block" tabindex="-1">' + ico('copy') + ' העתקה</button><button class="btn primary block" tabindex="-1">' + ico('check') + ' הוזמן</button></div>';
@@ -1120,6 +1448,7 @@
       case 'del': removeWithUndo(key, id); break;
       case 'tick': var it = findItem(key, id); if (it) patchItem(key, id, { d: !it.d }); break;
       case 'cktick': tickSent(id); break;
+      case 'ordtick': tickOrder(id); break;
       case 'ckclear':
         confirmSheet({ title: 'לנקות את הרשימה?', body: 'כל המוצרים והסימונים ברשימה שנשלחה יימחקו. הרשימה שאת מכינה לא תיפגע.', ok: 'כן, ניקוי', cancel: 'חזרה', danger: true }).then(function (ok) {
           if (!ok) return;
@@ -1148,6 +1477,7 @@
         var p = { items: {} }; done.forEach(function (i) { p.items[i.id] = FBM.deleteField(); }); writeList('liad', p);
         toast('נוקו ' + done.length + ' מוצרים'); break;
       case 'perm': if (window.FirebasePlugin) { if (lsGet('permAsked') && NA) NA.openNotificationSettings().catch(noop); else askPerm(); } break;
+      case 'notiftest': openNotifTest(); break;
       case 'notifSettings': if (NA) NA.openNotificationSettings().catch(noop); break;
       case 'goremind': S.tab = 'settings'; renderMain(); setTimeout(function () { var c = $('#remCard'); if (c) c.scrollIntoView({ behavior: 'smooth' }); }, 60); break;
       case 'theme': P.theme = v; savePrefs(); drawSettings(); break;
@@ -1216,12 +1546,12 @@
       if (document.hidden) return;
       if (S.updPending && safeToReload()) { SH.reload(); return; }   // חזרה לאפליקציה אחרי שהותקן עדכון: מפעילים אותו
       autoUpdateCheck(45000);
-      if (S.phase === 'main') { refreshPerm(); loadBackupInfo(); renderChip(); }
+      if (S.phase === 'main') { refreshPerm(); loadBackupInfo(); renderChip(); syncToken(false); }
     });
     setInterval(function () { autoUpdateCheck(170000); }, 180000);
     document.addEventListener('backbutton', function () {
       if (S.tour) { endTour(true); return; }
-      if (S.sheet) { closeSheet(); return; }
+      if (S.sheet) { if (S.dict) dictCancel(); else closeSheet(); return; }
       if (S.phase === 'main' && S.tab !== 'list') { S.tab = 'list'; renderMain(); return; }
       if (S.phase === 'onboarding' && S.onboarding && S.onboarding !== 'welcome' && !C.role) { drawWelcome(); S.onboarding = 'welcome'; return; }
       if (navigator.app && navigator.app.exitApp) navigator.app.exitApp();

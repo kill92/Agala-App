@@ -1,5 +1,6 @@
 package com.liad.agala;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -12,6 +13,7 @@ import android.speech.RecognizerIntent;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
+import org.apache.cordova.PluginResult;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -20,7 +22,11 @@ import java.util.ArrayList;
 
 public class AgalaNative extends CordovaPlugin {
     private static final int REQ_SPEECH = 7421;
+    private static final int REQ_AUDIO = 7422;
     private CallbackContext speechCb;
+    private CallbackContext audioCb;
+    private String audioLang = "he-IL";
+    private LiveSpeech live;
 
     @Override
     public boolean execute(String action, final JSONArray args, final CallbackContext cb) throws JSONException {
@@ -97,6 +103,36 @@ public class AgalaNative extends CordovaPlugin {
             return true;
         }
 
+        if ("isLiveSpeechAvailable".equals(action)) {
+            cb.success(LiveSpeech.available(ctx) ? 1 : 0);
+            return true;
+        }
+
+        if ("startListening".equals(action)) {
+            audioLang = args.optString(0, "he-IL");
+            audioCb = cb;
+            PluginResult keep = new PluginResult(PluginResult.Status.NO_RESULT);
+            keep.setKeepCallback(true);
+            cb.sendPluginResult(keep);
+            if (cordova.hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                startLive();
+            } else {
+                cordova.requestPermission(this, REQ_AUDIO, Manifest.permission.RECORD_AUDIO);
+            }
+            return true;
+        }
+
+        if ("stopListening".equals(action) || "cancelListening".equals(action)) {
+            final boolean stop = "stopListening".equals(action);
+            cordova.getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    if (live != null) { if (stop) live.stop(); else live.cancel(); }
+                }
+            });
+            cb.success();
+            return true;
+        }
+
         if ("startSpeech".equals(action)) {
             String lang = args.optString(0, "he-IL");
             Intent it = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
@@ -153,6 +189,43 @@ public class AgalaNative extends CordovaPlugin {
             cb.error(String.valueOf(e.getMessage()));
         }
         return true;
+    }
+
+    private void startLive() {
+        final CallbackContext c = audioCb;
+        final String lang = audioLang;
+        cordova.getActivity().runOnUiThread(new Runnable() {
+            public void run() {
+                if (live == null) live = new LiveSpeech(cordova.getActivity());
+                live.start(lang, c);
+            }
+        });
+    }
+
+    @Override
+    public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) throws JSONException {
+        if (requestCode != REQ_AUDIO) return;
+        CallbackContext c = audioCb;
+        if (c == null) return;
+        if (grantResults != null && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startLive();
+        } else {
+            audioCb = null;
+            c.error("perm");
+        }
+    }
+
+    @Override
+    public void onPause(boolean multitasking) {
+        if (live != null) {
+            final LiveSpeech l = live;
+            cordova.getActivity().runOnUiThread(new Runnable() { public void run() { l.cancel(); } });
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        if (live != null) live.cancel();
     }
 
     @Override
