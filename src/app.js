@@ -447,7 +447,7 @@
       NA.init(23, 50).then(loadBackupInfo, noop);
     }
   }
-  function canDictate() { return !!NA; }   // הכפתור תמיד מוצג; אם אין זיהוי דיבור במכשיר – מוצגת הודעה ברורה
+  function canDictate() { return true; }   // הכפתור תמיד מוצג; אם אין זיהוי דיבור במכשיר – מוצגת הודעה ברורה
   var DIAG_HINT = {
     'no-token': 'למכשיר אין טוקן התראות. ודא/י שיש אינטרנט ושההתקנה הושלמה, וסגור/י ופתח/י את האפליקציה.',
     'messaging/registration-token-not-registered': 'הטוקן לא תקף (כנראה אחרי התקנה מחדש). סגור/י ופתח/י את האפליקציה ונסה/י שוב.',
@@ -742,13 +742,33 @@
       return;
     }
     var upd = items.filter(function (i) { return i.g > base; }).length;
-    wrap.innerHTML = '<div class="muted small ordmeta">נשלחה ' + esc(relTime(m.sentAt)) + '</div>' +
+    wrap.innerHTML = '<div class="ordbar"><span class="muted small ordmeta">נשלחה ' + esc(relTime(m.sentAt)) + '</span><button type="button" class="btn sm" data-act="ordfit">התאמת גודל</button></div>' +
       (upd ? '<div class="updnote">' + upd + (upd === 1 ? ' מוצר עודכן' : ' מוצרים עודכנו') + ' – מסומנים בכחול</div>' : '') +
-      '<ul class="list dense">' + items.map(function (i) {
+      '<ul class="list dense" style="--oz:' + ordZoom() / 100 + '">' + items.map(function (i) {
         return '<li class="item ck' + (i.o ? ' done' : '') + (i.g > base ? ' upd' : '') + '" data-id="' + i.id + '" data-key="sent"><button class="ckrow" data-act="ordtick" aria-pressed="' + (i.o ? 'true' : 'false') + '" aria-label="' + esc(i.t) + (i.g > base ? ' (עודכן)' : '') + '">' +
           '<span class="box">' + ico('check') + '</span><span class="tx"><span class="t">' + esc(i.t) + '</span>' + (i.n ? '<span class="nt">' + esc(i.n) + '</span>' : '') + '</span>' + qtyHtml(i) + '</button></li>';
       }).join('') + '</ul>';
     lsSet('ordSeen', String(Math.max(+lsGet('ordSeen') || 0, m.sendSeq || 0)));
+  }
+  function ordZoom() { var z = +lsGet('ordZoom'); return z >= 50 && z <= 170 ? z : 85; }
+  function openOrdFit() {
+    openSheet('<h3>התאמת גודל הרשימה</h3><div class="muted small" style="margin-bottom:8px">מקטינים כדי שיותר מוצרים ייכנסו במסך, או מגדילים לקריאה נוחה.</div>' +
+      '<div class="fitrow"><button class="btn" id="fMinus" aria-label="הקטנה">−</button><input type="range" id="fRange" min="50" max="170" step="5" aria-label="גודל"><button class="btn" id="fPlus" aria-label="הגדלה">+</button></div>' +
+      '<div id="fVal" style="text-align:center;font-weight:800;margin:6px 0 12px"></div>' +
+      '<div class="t-btns"><button class="btn ghost" id="fReset">ברירת מחדל</button><button class="btn primary" id="fOk">סגירה</button></div>', function (sh) {
+      var r = $('#fRange', sh);
+      function set(v) {
+        v = Math.max(50, Math.min(170, Math.round(v / 5) * 5)); r.value = v; $('#fVal', sh).textContent = v + '%';
+        lsSet('ordZoom', String(v));
+        var ul = $('#orWrap ul'); if (ul) ul.style.setProperty('--oz', v / 100);
+      }
+      r.oninput = function () { set(+r.value); };
+      $('#fMinus', sh).onclick = function () { set(+r.value - 5); };
+      $('#fPlus', sh).onclick = function () { set(+r.value + 5); };
+      $('#fReset', sh).onclick = function () { set(85); };
+      $('#fOk', sh).onclick = closeSheet;
+      set(ordZoom());
+    }, true);
   }
   function tickOrder(id) {
     var it = findItem('sent', id); if (!it) return;
@@ -928,7 +948,7 @@
   /* ----- הכתבה בקול: מסך "הכתבה" עם כפתור סיום ----- */
   /* מצב רציף (APK חדש): מאזין עד "סיום". אחרת: חלון הקול של גוגל + "עוד מוצר" + "סיום". */
   function dictate(key) {
-    if (!NA) return;
+    if (!NA) { toast('ההכתבה לא זמינה בגרסה המותקנת. צריך להתקין את ה-APK החדש (npm run native ואז npm run apk).'); return; }
     if (!S.live && !S.speech) {   // המכשיר לא דיווח על זיהוי דיבור: מנסים בכל זאת, ואם נכשל – הסבר
       S.noSpeechTry = true;
     }
@@ -1453,6 +1473,7 @@
       case 'tick': var it = findItem(key, id); if (it) patchItem(key, id, { d: !it.d }); break;
       case 'cktick': tickSent(id); break;
       case 'ordtick': tickOrder(id); break;
+      case 'ordfit': openOrdFit(); break;
       case 'ckclear':
         confirmSheet({ title: 'לנקות את הרשימה?', body: 'כל המוצרים והסימונים ברשימה שנשלחה יימחקו. הרשימה שאת מכינה לא תיפגע.', ok: 'כן, ניקוי', cancel: 'חזרה', danger: true }).then(function (ok) {
           if (!ok) return;

@@ -224,12 +224,17 @@ body.touring{overflow:hidden}
 .ordmeta{margin:0 2px 8px}
 [data-role=liad] .tab{font-size:12.5px}
 
-/* רשימה להזמנה: צפופה */
-.list.dense{gap:5px}
-.list.dense .item{min-height:0;border-radius:12px;box-shadow:none}
-.list.dense .ckrow{gap:10px;padding:7px 10px;min-height:44px;border-radius:12px}
-.list.dense .ckrow .t{font-size:1rem;font-weight:700}
-.list.dense .box{width:26px;height:26px;border-radius:8px;border-width:2px}
-.list.dense .box svg{width:16px;height:16px}
-.list.dense .qty{font-size:.82rem;padding:1px 8px}
-.list.dense .nt{font-size:.74rem}
+/* רשימה להזמנה: צפופה, גודל לפי --oz */
+.list.dense{gap:.3em;font-size:calc(16px * var(--oz,.85))}
+.list.dense .item{min-height:0;border-radius:.75em;box-shadow:none}
+.list.dense .ckrow{gap:.6em;padding:.4em .6em;min-height:2.6em;border-radius:.75em}
+.list.dense .ckrow .t{font-size:1em;font-weight:700}
+.list.dense .box{width:1.6em;height:1.6em;border-radius:.45em;border-width:2px}
+.list.dense .box svg{width:1em;height:1em}
+.list.dense .qty{font-size:.85em;padding:.05em .55em}
+.list.dense .nt{font-size:.78em}
+.ordbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 2px 8px}
+.ordbar .btn{min-height:40px;padding:4px 14px}
+.fitrow{display:flex;align-items:center;gap:10px;direction:ltr}
+.fitrow input{flex:1;min-width:0;height:44px}
+.fitrow .btn{min-width:52px;font-size:1.4rem}
