@@ -447,6 +447,16 @@
       NA.init(23, 50).then(loadBackupInfo, noop);
     }
   }
+  function resolveNA() {
+    if (window.AgalaNative) return window.AgalaNative;
+    try { if (window.cordova && window.cordova.require) return window.cordova.require('cordova-plugin-agala-native.AgalaNative') || null; } catch (e) {}
+    return null;
+  }
+  function nativeDiag() {
+    var ids = '?';
+    try { ids = Object.keys(window.cordova.require('cordova/plugin_list').metadata || {}).map(function (k) { return k.replace('cordova-plugin-', ''); }).join(','); } catch (e) { ids = 'err'; }
+    return 'cordova=' + !!window.cordova + ' firebase=' + !!window.FirebasePlugin + ' agala=' + !!window.AgalaNative + ' plugins=' + ids;
+  }
   function canDictate() { return true; }   // הכפתור תמיד מוצג; אם אין זיהוי דיבור במכשיר – מוצגת הודעה ברורה
   var DIAG_HINT = {
     'no-token': 'למכשיר אין טוקן התראות. ודא/י שיש אינטרנט ושההתקנה הושלמה, וסגור/י ופתח/י את האפליקציה.',
@@ -948,7 +958,8 @@
   /* ----- הכתבה בקול: מסך "הכתבה" עם כפתור סיום ----- */
   /* מצב רציף (APK חדש): מאזין עד "סיום". אחרת: חלון הקול של גוגל + "עוד מוצר" + "סיום". */
   function dictate(key) {
-    if (!NA) { toast('ההכתבה לא זמינה בגרסה המותקנת. צריך להתקין את ה-APK החדש (npm run native ואז npm run apk).'); return; }
+    if (!NA) { NA = resolveNA(); if (NA) { try { setupNative(); } catch (e) {} } }
+    if (!NA) { openSheet('<h3>הכתבה לא זמינה</h3><p>רכיב ההכתבה לא נטען באפליקציה.</p><p class="muted small" dir="ltr" style="text-align:left;overflow-wrap:anywhere">' + esc(nativeDiag()) + '</p><button class="btn primary block" id="ndOk">סגירה</button>', function (sh) { $('#ndOk', sh).onclick = closeSheet; }, true); return; }
     if (!S.live && !S.speech) {   // המכשיר לא דיווח על זיהוי דיבור: מנסים בכל זאת, ואם נכשל – הסבר
       S.noSpeechTry = true;
     }
@@ -1554,7 +1565,7 @@
   }
 
   function start(shell) {
-    SH = shell; NS = shell.ns; FBM = window.FB; NA = window.AgalaNative || null;
+    SH = shell; NS = shell.ns; FBM = window.FB; NA = resolveNA();
     P = lsJson('prefs', P); C = lsJson('conn', { role: null, code: null });
     if (!C.role || !C.code) { C = { role: null, code: null }; }
     applyPrefs();
