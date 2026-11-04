@@ -223,3 +223,13 @@ body.touring{overflow:hidden}
 .updnote{color:var(--blue);font-weight:800;font-size:.92rem;margin:4px 2px 10px}
 .ordmeta{margin:0 2px 8px}
 [data-role=liad] .tab{font-size:12.5px}
+
+/* רשימה להזמנה: צפופה */
+.list.dense{gap:5px}
+.list.dense .item{min-height:0;border-radius:12px;box-shadow:none}
+.list.dense .ckrow{gap:10px;padding:7px 10px;min-height:44px;border-radius:12px}
+.list.dense .ckrow .t{font-size:1rem;font-weight:700}
+.list.dense .box{width:26px;height:26px;border-radius:8px;border-width:2px}
+.list.dense .box svg{width:16px;height:16px}
+.list.dense .qty{font-size:.82rem;padding:1px 8px}
+.list.dense .nt{font-size:.74rem}

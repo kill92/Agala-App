@@ -439,14 +439,15 @@
       setTimeout(function () { if (!S.tour) askPermSheet(); }, 1800);
     }
     if (NA) {
-      if (NA.isLiveSpeechAvailable) NA.isLiveSpeechAvailable().then(function (v) { S.live = !!v; }, function () { S.live = false; });
-      NA.isSpeechAvailable().then(function (v) {
-        S.speech = !!v;
-        if (S.speech && S.phase === 'main' && (S.tab === 'list' || S.tab === 'mine') && !focusInScreen()) renderMain();
-      }, noop);
+      var micRefresh = function () {
+        if (canDictate() && S.phase === 'main' && (S.tab === 'list' || S.tab === 'mine') && !focusInScreen()) renderMain();
+      };
+      if (NA.isLiveSpeechAvailable) NA.isLiveSpeechAvailable().then(function (v) { S.live = !!v; micRefresh(); }, function () { S.live = false; });
+      NA.isSpeechAvailable().then(function (v) { S.speech = !!v; micRefresh(); }, noop);
       NA.init(23, 50).then(loadBackupInfo, noop);
     }
   }
+  function canDictate() { return !!NA; }   // הכפתור תמיד מוצג; אם אין זיהוי דיבור במכשיר – מוצגת הודעה ברורה
   var DIAG_HINT = {
     'no-token': 'למכשיר אין טוקן התראות. ודא/י שיש אינטרנט ושההתקנה הושלמה, וסגור/י ופתח/י את האפליקציה.',
     'messaging/registration-token-not-registered': 'הטוקן לא תקף (כנראה אחרי התקנה מחדש). סגור/י ופתח/י את האפליקציה ונסה/י שוב.',
@@ -625,7 +626,7 @@
     return '<form class="card add" id="addForm" data-key="' + key + '" autocomplete="off">' +
       '<input type="text" id="addInput" maxlength="60" enterkeyhint="done" aria-label="שם המוצר" placeholder="' + (mom ? 'מה חסר בבית?' : 'הוספת מוצר…') + '">' +
       '<div class="actions">' +
-      (S.speech ? '<button type="button" class="btn mic" data-act="mic" data-key="' + key + '" aria-label="הזנה בקול">' + ico('mic', 'lg') + (mom ? '<span>דיבור</span>' : '') + '</button>' : '') +
+      (canDictate() ? '<button type="button" class="btn mic" data-act="mic" data-key="' + key + '" aria-label="הזנה בקול">' + ico('mic', 'lg') + (mom ? '<span>דיבור</span>' : '') + '</button>' : '') +
       '<button type="submit" class="btn primary">' + ico('plus') + ' הוספה</button></div></form>';
   }
   function drawListTab() {
@@ -743,7 +744,7 @@
     var upd = items.filter(function (i) { return i.g > base; }).length;
     wrap.innerHTML = '<div class="muted small ordmeta">נשלחה ' + esc(relTime(m.sentAt)) + '</div>' +
       (upd ? '<div class="updnote">' + upd + (upd === 1 ? ' מוצר עודכן' : ' מוצרים עודכנו') + ' – מסומנים בכחול</div>' : '') +
-      '<ul class="list">' + items.map(function (i) {
+      '<ul class="list dense">' + items.map(function (i) {
         return '<li class="item ck' + (i.o ? ' done' : '') + (i.g > base ? ' upd' : '') + '" data-id="' + i.id + '" data-key="sent"><button class="ckrow" data-act="ordtick" aria-pressed="' + (i.o ? 'true' : 'false') + '" aria-label="' + esc(i.t) + (i.g > base ? ' (עודכן)' : '') + '">' +
           '<span class="box">' + ico('check') + '</span><span class="tx"><span class="t">' + esc(i.t) + '</span>' + (i.n ? '<span class="nt">' + esc(i.n) + '</span>' : '') + '</span>' + qtyHtml(i) + '</button></li>';
       }).join('') + '</ul>';
@@ -774,7 +775,7 @@
     if (!items.length) {
       el.innerHTML = '<div class="empty"><div class="big">' + ico('cart') + '</div><b>' +
         (key === 'liad' ? 'הרשימה שלך ריקה' : mom ? 'הרשימה ריקה' : 'אמא עוד לא הוסיפה מוצרים') + '</b>' +
-        (mom ? 'כתבי כאן מה חסר בבית' + (S.speech ? ', או לחצי על "דיבור" ואמרי.' : '.') : '') + '</div>';
+        (mom ? 'כתבי כאן מה חסר בבית' + (canDictate() ? ', או לחצי על "דיבור" ואמרי.' : '.') : '') + '</div>';
       return;
     }
     el.innerHTML = '<div class="count">' + items.length + (items.length === 1 ? ' מוצר' : ' מוצרים') + '</div><ul class="list">' + items.map(function (i) { return itemRow(key, i); }).join('') + '</ul>' +
@@ -928,6 +929,9 @@
   /* מצב רציף (APK חדש): מאזין עד "סיום". אחרת: חלון הקול של גוגל + "עוד מוצר" + "סיום". */
   function dictate(key) {
     if (!NA) return;
+    if (!S.live && !S.speech) {   // המכשיר לא דיווח על זיהוי דיבור: מנסים בכל זאת, ואם נכשל – הסבר
+      S.noSpeechTry = true;
+    }
     var live = !!S.live;
     S.dict = { key: key, parts: [], rows: [], busy: false, live: live, partial: '', stopping: false, state: live ? 'starting' : 'idle' };
     var fem = C.role === 'mom';
@@ -1014,7 +1018,7 @@
       if (S.dict !== d) return;
       d.busy = false;
       var cancelled = e && (e.cancelled || e === 'cancelled' || e.message === 'cancelled');
-      if (!cancelled) toast('הזנה בקול לא עבדה. אפשר להקליד.');
+      if (!cancelled) toast(S.noSpeechTry && !S.speech && !S.live ? 'אין במכשיר זיהוי דיבור. ודא/י שאפליקציית Google מותקנת ומעודכנת, ושהותקן ה-APK החדש.' : 'הזנה בקול לא עבדה. אפשר להקליד.');
       if (!d.rows.length && !cancelled) closeSheet();
     });
   }

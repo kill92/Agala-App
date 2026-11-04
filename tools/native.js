@@ -14,7 +14,9 @@ if (!fs.existsSync(path.join(root, 'google-services.json'))) { console.error('\n
 if (!fs.existsSync(path.join(root, 'platforms', 'android'))) {
   if (!run(cdv + ' platform add android')) process.exit(1);
 }
-if (!fs.existsSync(path.join(root, 'plugins', 'cordova-plugin-firebasex'))) {
+const hasFirebasex = ['cordova-plugin-firebasex', 'cordova-plugin-firebasex-core', 'cordova-plugin-firebasex-messaging']
+  .some(function (n) { return fs.existsSync(path.join(root, 'plugins', n)); });
+if (!hasFirebasex) {
   if (!run(cdv + ' plugin add cordova-plugin-firebasex --variable FIREBASE_ANALYTICS_COLLECTION_ENABLED=false --variable FIREBASE_PERFORMANCE_COLLECTION_ENABLED=false --variable FIREBASE_CRASHLYTICS_COLLECTION_ENABLED=false --variable ANDROID_ICON_ACCENT=#12805C')) process.exit(1);
 }
 // הפלאגין שלנו תמיד מותקן מחדש מהמקור, כדי ששינויי קוד נייטיב (למשל הכתבה רציפה) ייכנסו ל-APK
