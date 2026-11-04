@@ -1,0 +1,8 @@
+{
+  "name": "cordova-plugin-agala-native",
+  "version": "1.1.0",
+  "description": "Agala native helpers: daily backup, live dictation, permissions",
+  "cordova": { "id": "cordova-plugin-agala-native", "platforms": ["android"] },
+  "keywords": ["ecosystem:cordova", "cordova-android"],
+  "license": "MIT"
+}

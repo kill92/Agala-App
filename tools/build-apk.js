@@ -26,6 +26,11 @@ if (release) {
 }
 if (!run(cmd)) { console.error('\n❌ הבנייה נכשלה. אפשר להעתיק לי את השגיאה האחרונה ואתקן.'); process.exit(1); }
 
+const plj = path.join(root, 'platforms', 'android', 'app', 'src', 'main', 'assets', 'www', 'cordova_plugins.js');
+if (!fs.existsSync(plj) || fs.readFileSync(plj, 'utf8').indexOf('agala-native') < 0) {
+  console.error('\n❌ הרכיב cordova-plugin-agala-native לא נכנס ל-APK (גיבוי והכתבה לא יעבדו). קודם להריץ: npm run native, ולוודא שהוא מסתיים ב-✅. ה-APK לא הועתק.');
+  process.exit(1);
+}
 const dir = path.join(root, 'platforms', 'android', 'app', 'build', 'outputs', 'apk', release ? 'release' : 'debug');
 const apk = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /\.apk$/.test(f) && !/unaligned/.test(f))[0] : null;
 if (!apk) { console.error('לא נמצא קובץ APK בתיקייה ' + dir); process.exit(1); }

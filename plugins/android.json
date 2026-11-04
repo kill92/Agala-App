@@ -14,72 +14,17 @@
       "IOS_ENABLE_CRITICAL_ALERTS_ENABLED": "false",
       "ANDROID_ICON_ACCENT": "#12805C",
       "ANDROID_FIREBASE_MESSAGING_VERSION": "25.0.2",
-      "ANDROID_FIREBASE_CORE_VERSION": "21.1.1",
-      "ANDROID_FIREBASE_INSTALLATIONS_VERSION": "19.1.0",
-      "ANDROID_GSON_VERSION": "2.14.0",
+      "PACKAGE_NAME": "com.liad.agala"
+    },
+    "cordova-plugin-agala-native": {
       "PACKAGE_NAME": "com.liad.agala"
     }
   },
   "dependent_plugins": {
-    "cordova-plugin-agala-native": {
-      "PACKAGE_NAME": "com.liad.agala"
-    },
-    "cordova-plugin-firebasex-analytics": {
-      "FIREBASE_ANALYTICS_COLLECTION_ENABLED": "false",
-      "FIREBASE_ANALYTICS_WITHOUT_ADS": "false",
-      "GOOGLE_ANALYTICS_ADID_COLLECTION_ENABLED": "true",
-      "GOOGLE_ANALYTICS_DEFAULT_ALLOW_ANALYTICS_STORAGE": "true",
-      "GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_STORAGE": "true",
-      "GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_USER_DATA": "true",
-      "GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS": "true",
-      "IOS_ON_DEVICE_CONVERSION_ANALYTICS": "false",
-      "ANDROID_FIREBASE_ANALYTICS_VERSION": "23.0.0",
-      "ANDROID_PLAY_SERVICES_TAGMANAGER_VERSION": "18.3.0",
-      "PACKAGE_NAME": "com.liad.agala"
-    },
     "cordova-plugin-firebasex-core": {
       "ANDROID_FIREBASE_CORE_VERSION": "21.1.1",
       "ANDROID_FIREBASE_INSTALLATIONS_VERSION": "19.1.0",
       "ANDROID_GSON_VERSION": "2.14.0",
-      "PACKAGE_NAME": "com.liad.agala"
-    },
-    "cordova-plugin-firebasex-auth": {
-      "SETUP_RECAPTCHA_VERIFICATION": "false",
-      "IOS_ENABLE_APPLE_SIGNIN": "false",
-      "IOS_GOOGLE_SIGNIN_VERSION": "9.1.0",
-      "ANDROID_FIREBASE_AUTH_VERSION": "24.1.0",
-      "ANDROID_PLAY_SERVICES_AUTH_VERSION": "21.6.0",
-      "ANDROID_CREDENTIALS_VERSION": "1.6.0",
-      "ANDROID_GOOGLEID_VERSION": "1.2.0",
-      "PACKAGE_NAME": "com.liad.agala"
-    },
-    "cordova-plugin-firebasex-crashlytics": {
-      "FIREBASE_CRASHLYTICS_COLLECTION_ENABLED": "false",
-      "ANDROID_FIREBASE_CRASHLYTICS_VERSION": "20.0.6",
-      "ANDROID_FIREBASE_CRASHLYTICS_NDK_VERSION": "20.0.6",
-      "PACKAGE_NAME": "com.liad.agala"
-    },
-    "cordova-plugin-firebasex-firestore": {
-      "IOS_USE_PRECOMPILED_FIRESTORE_POD": "false",
-      "ANDROID_FIREBASE_FIRESTORE_VERSION": "26.3.0",
-      "ANDROID_GRPC_OKHTTP": "1.81.0",
-      "ANDROID_GSON_VERSION": "2.14.0",
-      "PACKAGE_NAME": "com.liad.agala"
-    },
-    "cordova-plugin-firebasex-functions": {
-      "ANDROID_FIREBASE_FUNCTIONS_VERSION": "22.1.1",
-      "ANDROID_GSON_VERSION": "2.14.0",
-      "PACKAGE_NAME": "com.liad.agala"
-    },
-    "cordova-plugin-firebasex-config": {
-      "ANDROID_FIREBASE_CONFIG_VERSION": "23.1.0",
-      "PACKAGE_NAME": "com.liad.agala"
-    },
-    "cordova-plugin-firebasex-performance": {
-      "FIREBASE_PERFORMANCE_COLLECTION_ENABLED": "false",
-      "ANDROID_FIREBASE_PERFORMANCE_MONITORING": "false",
-      "ANDROID_FIREBASE_PERF_GRADLE_PLUGIN_VERSION": "2.0.2",
-      "ANDROID_FIREBASE_PERF_VERSION": "22.0.5",
       "PACKAGE_NAME": "com.liad.agala"
     }
   }

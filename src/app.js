@@ -1565,6 +1565,8 @@
   }
 
   function start(shell) {
+    // התוספים המודולריים של Firebase חושפים FirebasexMessaging במקום FirebasePlugin
+    if (!window.FirebasePlugin && window.FirebasexMessaging) window.FirebasePlugin = window.FirebasexMessaging;
     SH = shell; NS = shell.ns; FBM = window.FB; NA = resolveNA();
     P = lsJson('prefs', P); C = lsJson('conn', { role: null, code: null });
     if (!C.role || !C.code) { C = { role: null, code: null }; }

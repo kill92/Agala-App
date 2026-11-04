@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "cordova-android": "^15.1.0",
-    "cordova-plugin-firebasex": "^20.0.2",
+    "cordova-plugin-agala-native": "file:plugins/agala-native",
     "cordova-plugin-firebasex-messaging": "^2.0.3",
     "esbuild": "0.21.5",
     "firebase": "10.14.1"
@@ -27,7 +27,8 @@
     "plugins": {
       "cordova-plugin-firebasex-messaging": {
         "ANDROID_ICON_ACCENT": "#12805C"
-      }
+      },
+      "cordova-plugin-agala-native": {}
     }
   }
 }
